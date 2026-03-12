@@ -350,12 +350,12 @@ http_archive(
     sha256 = _TENSORFLOW_SHA256,
     strip_prefix = "tensorflow-%s" % _TENSORFLOW_GIT_COMMIT,
     urls = [
+	"file:///tmp/fad6b3cf5a7d51a437bd01ee929853bc8554b618.tar.gz",
         "https://github.com/tensorflow/tensorflow/archive/%s.tar.gz" % _TENSORFLOW_GIT_COMMIT,
     ],
 )
 
 load("@org_tensorflow//tensorflow:workspace3.bzl", "tf_workspace3")
-
 tf_workspace3()
 
 # Initialize hermetic Python
