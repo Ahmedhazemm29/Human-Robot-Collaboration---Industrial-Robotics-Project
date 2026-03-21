@@ -1,0 +1,87 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://wiki.ros.org/xacro" name="ur">
+
+  <xacro:include filename="$(find ur_description)/urdf/ur_macro.xacro"/>
+
+  <xacro:arg name="safety_limits"     default="true"/>
+  <xacro:arg name="safety_pos_margin" default="0.15"/>
+  <xacro:arg name="safety_k_position" default="20"/>
+  <xacro:arg name="name"              default="ur"/>
+  <xacro:arg name="ur_type"           default="ur5e"/>
+  <xacro:arg name="prefix"            default=""/>
+
+  <!-- World link -->
+  <link name="world"/>
+
+  <!-- Table -->
+  <joint name="world_to_table" type="fixed">
+    <parent link="world"/>
+    <child link="table"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+  <link name="table">
+    <visual>
+      <geometry><box size="1.4 0.7 0.71"/></geometry>
+      <origin xyz="0 0 0.355" rpy="0 0 0"/>
+      <material name="grey"><color rgba="0.6 0.6 0.6 1"/></material>
+    </visual>
+    <collision>
+      <geometry><box size="1.4 0.7 0.71"/></geometry>
+      <origin xyz="0 0 0.355" rpy="0 0 0"/>
+    </collision>
+  </link>
+
+  <!-- Frame -->
+  <joint name="world_to_frame" type="fixed">
+    <parent link="world"/>
+    <child link="frame"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+  <link name="frame">
+    <visual><geometry><box size="2.0 0.05 0.05"/></geometry><origin xyz="0 -0.75 0"    rpy="0 0 0"/></visual>
+    <visual><geometry><box size="2.0 0.05 0.05"/></geometry><origin xyz="0  0.75 0"    rpy="0 0 0"/></visual>
+    <visual><geometry><box size="0.05 1.5 0.05"/></geometry><origin xyz="-1.0 0 0"     rpy="0 0 0"/></visual>
+    <visual><geometry><box size="0.05 1.5 0.05"/></geometry><origin xyz=" 1.0 0 0"     rpy="0 0 0"/></visual>
+    <visual><geometry><box size="2.0 0.05 0.05"/></geometry><origin xyz="0 -0.75 1.88" rpy="0 0 0"/></visual>
+    <visual><geometry><box size="2.0 0.05 0.05"/></geometry><origin xyz="0  0.75 1.88" rpy="0 0 0"/></visual>
+    <visual><geometry><box size="0.05 1.5 0.05"/></geometry><origin xyz="-1.0 0  1.88" rpy="0 0 0"/></visual>
+    <visual><geometry><box size="0.05 1.5 0.05"/></geometry><origin xyz=" 1.0 0  1.88" rpy="0 0 0"/></visual>
+    <visual><geometry><box size="0.05 0.05 1.88"/></geometry><origin xyz="-1.0 -0.75 0.94" rpy="0 0 0"/></visual>
+    <visual><geometry><box size="0.05 0.05 1.88"/></geometry><origin xyz=" 1.0 -0.75 0.94" rpy="0 0 0"/></visual>
+    <visual><geometry><box size="0.05 0.05 1.88"/></geometry><origin xyz="-1.0  0.75 0.94" rpy="0 0 0"/></visual>
+    <visual><geometry><box size="0.05 0.05 1.88"/></geometry><origin xyz=" 1.0  0.75 0.94" rpy="0 0 0"/></visual>
+  </link>
+
+  <!-- UR5e mounted inverted -->
+  <xacro:ur_robot
+    name="$(arg name)"
+    tf_prefix="$(arg prefix)"
+    parent="world"
+    joint_limits_parameters_file="$(find ur_description)/config/$(arg ur_type)/joint_limits.yaml"
+    kinematics_parameters_file="$(find ur_description)/config/$(arg ur_type)/default_kinematics.yaml"
+    physical_parameters_file="$(find ur_description)/config/$(arg ur_type)/physical_parameters.yaml"
+    visual_parameters_file="$(find ur_description)/config/$(arg ur_type)/visual_parameters.yaml"
+    safety_limits="$(arg safety_limits)"
+    safety_pos_margin="$(arg safety_pos_margin)"
+    safety_k_position="$(arg safety_k_position)"
+    sim_ignition="true">
+    <origin xyz="-0.12 0.07 1.88" rpy="3.14159 0 0"/>
+  </xacro:ur_robot>
+
+  <!--
+    This is the critical block that was missing.
+    It tells Gazebo Ignition to load the ign_ros2_control plugin,
+    which starts the controller_manager node inside the simulation
+    and connects the physics joints to ROS2 controllers.
+    Without this, Gazebo runs the robot visually but ROS2 has no
+    control over it — like a car with an engine but no ignition key.
+  -->
+  <gazebo>
+    <plugin filename="libign_ros2_control-system.so"
+            name="ign_ros2_control::IgnitionROS2ControlPlugin">
+      <parameters>/opt/ros/humble/share/ur_simulation_gz/config/ur_controllers.yaml</parameters>
+      <controller_manager_node_name>controller_manager</controller_manager_node_name>
+    </plugin>
+  </gazebo>
+
+</robot>
