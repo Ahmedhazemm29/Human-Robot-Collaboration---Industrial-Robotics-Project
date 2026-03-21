@@ -1,129 +1,149 @@
 # Human-Robot Collaboration — Industrial Robotics Project
+
 ## Vision-Based Safe Workspace Sharing using UR5e, ROS2, and Computer Vision
 
-🚧 **Project Status: Work in Progress**
+🚧 **Project Status: Core System Working — RealSense Integration Pending**
 
-A vision-driven human-robot collaboration system where a UR5e robot detects a human worker's active workspace and avoids collision zones while autonomously operating in the remaining safe areas.
-
----
-
-# Introduction
-
-This project explores **Human-Robot Collaboration (HRC)** in an industrial robotics setting using **ROS2 Humble**, **computer vision**, and a **UR5e collaborative robot**. The goal is to enable safe interaction between a human worker and a robot operating within the same workspace.
-
-In traditional industrial environments, robots are often separated from humans using physical safety cages. While effective for safety, these barriers reduce flexibility and efficiency. Modern **collaborative robotics systems (cobots)** aim to remove these barriers and allow robots to work alongside humans safely.
-
-In this project, a vision system using an **Intel RealSense camera** monitors the workspace and detects the **human worker's hand using MediaPipe hand tracking**. A **padded rectangular region around the detected hand** is dynamically defined as a **prohibited workspace zone**. The robot interprets this region as unsafe and avoids planning motions within it.
-
-By combining **computer vision, ROS2 robotic middleware, motion planning with MoveIt2, and simulation tools such as RViz and Gazebo**, the system enables the robot to perform tasks only in areas that are not currently occupied by the human worker.
-
-This demonstrates an intelligent **vision-based safety layer for collaborative robotics**, allowing robots to adapt to human activity in real time.
-
-Keywords:  
-Human-Robot Collaboration, ROS2, Industrial Robotics, Computer Vision, UR5e, MoveIt2, MediaPipe, Robot Safety, Collaborative Robots.
+A vision-driven human-robot collaboration system where a UR5e robot detects a human worker's hand in real time, dynamically defines it as a forbidden zone in the MoveIt2 planning scene, and replans its trajectory to avoid it — all without physical safety barriers.
 
 ---
 
-# Current Progress
+## Demo
 
-## ✅ Completed
+> ⚠️ This demo shows an intermediate milestone — full RealSense integration and physical robot testing are the next steps.
 
-### C++ MediaPipe Hand Tracking Node (Bazel)
-- Implemented real-time C++ hand tracking node using **MediaPipe HandLandmarkTrackingCpu** graph
-- Achieves **30 FPS** in good lighting conditions on a laptop webcam
-- Publishes hand bounding box as `geometry_msgs/PolygonStamped` on `/hand_bbox` topic
-- Bounding box contains 4 corner points (top-left → top-right → bottom-right → bottom-left) in pixel coordinates
-- Built using **Bazel 7.4.1** with **Clang 14** linked against **ROS2 Humble** libraries on Ubuntu 22.04
-- Custom graph config (`hand_tracking_custom.pbtxt`) exposes the landmarks output stream
+[![Demo Video](https://img.youtube.com/vi/w9RsIq-Hb4k/0.jpg)](https://www.youtube.com/watch?v=w9RsIq-Hb4k)
 
-### Pipeline So Far
+*Collision avoidance pipeline running in Gazebo Ignition simulation with webcam mode. The green box tracks the human hand in real time — MoveIt2 replans around it automatically.*
+
+---
+
+## What This System Does
+
+In traditional industrial environments, robots are separated from humans using physical safety cages. This project removes that barrier. A camera monitors the shared workspace, detects the human worker's hand using MediaPipe, and publishes a padded 3D collision box around it to MoveIt2 at 10Hz. The UR5e robot treats this box as a live obstacle and automatically replans around it in real time.
+
+The result is a robot that can share a workspace with a human worker safely — stopping and replanning whenever the human's hand enters the robot's intended path, and resuming normal operation the moment the hand moves away.
+
+---
+
+## System Architecture
+
 ```
-Webcam → MediaPipe (C++) → /hand_bbox topic (2D pixel coordinates)
-```
-
-## 🔄 In Progress
-
-- `bbox_to_3d_node` — subscribes to `/hand_bbox` + RealSense depth image, back-projects pixel coordinates to 3D world coordinates using TF2, publishes MoveIt2 collision object on `/collision_object`
-- `motion_planner_node` — subscribes to `/collision_object`, adds hand as obstacle in MoveIt2 planning scene, stops robot, replans around hand, executes new trajectory
-
-## ⏳ Pending (requires lab access)
-
-- RealSense camera integration and TF2 frame calibration
-- MoveIt2 planning group verification on real UR5e
-- Full end-to-end testing on physical robot
-
----
-
-# System Demonstration
-
-*(A system architecture diagram or demo video will be added here in the future.)*
-
----
-
-# High-Level System Workflow
-
-1. The **Intel RealSense camera** monitors the shared workspace.
-2. The **C++ MediaPipe hand tracking node** detects the human hand at 30 FPS.
-3. A **padded bounding box around the hand** is published to `/hand_bbox` as 2D pixel coordinates.
-4. The **bbox_to_3d_node** uses RealSense depth data to convert the 2D bbox to a 3D collision object in the robot world frame.
-5. The **motion_planner_node** adds the collision object to the MoveIt2 planning scene.
-6. MoveIt2 replans the robot trajectory to avoid the hand.
-7. The UR5e executes the new safe trajectory.
-
----
-
-# Full Pipeline Architecture
-```
-RealSense Camera (RGB)
-        |
-        v
-C++ MediaPipe Hand Tracking Node (Bazel)
-        |
-        v
-/hand_bbox topic (2D pixel bounding box)
-        |
-RealSense Depth Image ──────────────────┐
-                                        v
-                            bbox_to_3d_node (ROS2)
-                                        |
-                                        v
-                            /collision_object topic (3D MoveIt2 obstacle)
-                                        |
-                                        v
-                            motion_planner_node (ROS2 + MoveIt2)
-                                        |
-                                        v
-                                UR5e Robot Arm
+Webcam / RealSense Camera (RGB + Depth)
+              |
+              v
+  C++ MediaPipe Hand Tracking Node
+  (30 FPS, publishes 21 landmarks)
+              |
+              v
+     /hand_landmarks/hand_0
+              |
+              v
+   hand_to_collision.py (ROS2, 10Hz)
+   - Builds padded 3D bounding box
+   - Constrained to table surface
+   - Atomic remove+add (no ghost boxes)
+              |
+              v
+      /planning_scene topic
+              |
+              v
+    MoveIt2 Motion Planner
+    - Treats hand box as obstacle
+    - Replans trajectory around it
+              |
+              v
+         UR5e Robot Arm
 ```
 
 ---
 
-# User Instructions
+## Key Features
 
-## System Requirements
+- **Real-time hand detection** at 30 FPS using a custom C++ MediaPipe node
+- **Live collision avoidance** — MoveIt2 replans around the hand box at 10Hz
+- **Atomic scene updates** — old box and new box swap in one message, no ghost boxes
+- **Table-constrained collision box** — box is clamped to the table's physical boundaries
+- **Dual mode operation** — WEBCAM_MODE for development, RealSense mode for deployment
+- **Gazebo Ignition simulation** — full lab environment with inverted UR5e, table, and frame
+- **Single-command launcher** — entire 4-terminal pipeline starts with one command
 
-### Hardware
+---
 
-- UR5e Industrial Robot Arm
-- Intel RealSense Camera (mounted fixed to environment at ~45° downward angle)
-- Robot gripper or end effector
-- Workstation or laptop running Ubuntu
+## Simulation Environment
 
-### Software
+The simulation runs in **Gazebo Ignition (Fortress)** with a custom lab description matching the real physical setup:
+
+- UR5e mounted **inverted** on a ceiling frame (matching real lab configuration)
+- Aluminium frame structure (2.0m × 1.5m × 1.88m)
+- Work table (1.4m × 0.7m × 0.71m) centered below the robot
+- Full MoveIt2 integration with `joint_state_broadcaster` and `joint_trajectory_controller`
+- RViz with live PlanningScene display showing the green hand collision box
+
+---
+
+## Proven Results
+
+The collision avoidance pipeline has been tested end-to-end in simulation:
+
+- ✅ Hand detected in real time via webcam + MediaPipe at 30 FPS
+- ✅ Collision box published to MoveIt2 at 10Hz — appears as green box in RViz
+- ✅ Robot **fails to plan** when hand box is in the intended path
+- ✅ Robot **plans successfully** the moment the hand is removed
+- ✅ Consistent on/off behaviour confirmed across multiple test runs
+
+---
+
+## Project Status
+
+| Component | Status |
+|---|---|
+| C++ MediaPipe hand tracking node | ✅ Complete |
+| hand_to_collision.py ROS2 node | ✅ Complete |
+| Gazebo Ignition simulation (lab description) | ✅ Complete |
+| MoveIt2 collision avoidance in simulation | ✅ Complete |
+| Webcam testing mode | ✅ Complete |
+| Single-command pipeline launcher | ✅ Complete |
+| Intel RealSense depth integration | 🔄 In Progress |
+| Full end-to-end test on physical UR5e | ⏳ Pending lab access |
+
+---
+
+## Repository Structure
+
+```
+Human-Robot-Collaboration---Industrial-Robotics-Project/
+├── README.md
+├── .gitignore
+├── launch_hrc.sh                     # Single command to launch full pipeline
+├── mediapipe/                        # C++ hand tracking node (Bazel)
+│   └── examples/hand_tracking_custom/
+│       ├── hand_tracking.cpp         # MediaPipe + ROS2 publisher (30 FPS)
+│       └── BUILD                     # Bazel build file
+├── src/                              # ROS2 Python nodes
+│   └── hand_to_collision.py          # Hand landmarks → MoveIt2 collision box
+├── ros2/                             # Robot description and launch files
+│   ├── lab_robot_sim.urdf.xacro      # Lab robot: inverted UR5e + table + frame
+│   └── lab_sim_moveit.launch.py      # Gazebo Ignition + MoveIt2 launch file
+├── docs/                             # Documentation and diagrams
+└── third_party/                      # MediaPipe source dependencies
+```
+
+---
+
+## Quick Start
+
+### Prerequisites
 
 - Ubuntu 22.04
 - ROS2 Humble
+- Gazebo Ignition Fortress (`ros-humble-ros-gz`)
+- MoveIt2 (`ros-humble-moveit`)
 - Bazel 7.4.1
-- Clang 14
-- OpenCV 4.5.4
-- MediaPipe (C++)
-- MoveIt2
-- RViz
-- Gazebo
+- MediaPipe C++ (built in `~/mediapipe`)
+- UR ROS2 packages (`ros-humble-ur`)
 
----
-
-# Installation
+### Installation
 
 **1. Clone the repository:**
 ```bash
@@ -132,161 +152,108 @@ cd Human-Robot-Collaboration---Industrial-Robotics-Project
 git checkout master
 ```
 
-**2. Install dependencies:**
-```bash
-# ROS2 Humble
-sudo apt install ros-humble-desktop
-
-# Bazel
-sudo apt install bazel-7.4.1
-
-# Clang
-sudo apt install clang-14
-
-# OpenCV
-sudo apt install libopencv-dev
-```
-
-**3. Download required MediaPipe hand tracking models:**
-```bash
-python3 -c "
-import urllib.request
-models = [
-    ('https://storage.googleapis.com/mediapipe-assets/hand_landmark_lite.tflite',
-     'mediapipe/modules/hand_landmark/hand_landmark_lite.tflite'),
-    ('https://storage.googleapis.com/mediapipe-assets/hand_landmark_full.tflite',
-     'mediapipe/modules/hand_landmark/hand_landmark_full.tflite'),
-    ('https://storage.googleapis.com/mediapipe-assets/palm_detection_lite.tflite',
-     'mediapipe/modules/palm_detection/palm_detection_lite.tflite'),
-    ('https://storage.googleapis.com/mediapipe-assets/palm_detection_full.tflite',
-     'mediapipe/modules/palm_detection/palm_detection_full.tflite'),
-]
-for url, path in models:
-    print(f'Downloading {path}...')
-    urllib.request.urlretrieve(url, path)
-    print('Done')
-"
-```
-
-**4. Set up terminal aliases for convenience:**
-```bash
-echo "alias handtrack='source /opt/ros/humble/setup.bash && cd ~/mediapipe && ./bazel-bin/mediapipe/examples/hand_tracking_custom/hand_tracking'" >> ~/.bashrc
-
-echo "alias builtrack='cd ~/mediapipe && bazel-7.4.1 build -c opt --define=xnn_enable_avx512fp16=false --define=xnn_enable_avxvnniint8=false --action_env=CC=clang --action_env=CXX=clang++ --action_env=CPLUS_INCLUDE_PATH=/usr/include/opencv4:\$(find /opt/ros/humble/include -maxdepth 1 -type d | tr \"\n\" \":\" | sed \"s/:\$//\") --action_env=LIBRARY_PATH=/opt/ros/humble/lib --action_env=LD_LIBRARY_PATH=/opt/ros/humble/lib //mediapipe/examples/hand_tracking_custom:hand_tracking'" >> ~/.bashrc
-
-source ~/.bashrc
-```
-
-**5. Build the hand tracking node:**
+**2. Build the hand tracking node:**
 ```bash
 builtrack
 ```
 
+**3. Build the ROS2 workspace:**
+```bash
+cd ~/ros2_ws
+colcon build
+source ~/ros2_ws/install/setup.bash
+```
+
+### Running the Full Pipeline
+
+**Single command (recommended):**
+```bash
+~/launch_hrc.sh
+```
+
+This opens 4 terminals automatically in sequence:
+- Terminal 1 — Gazebo Ignition + MoveIt2 + RViz (waits 20s for full initialization)
+- Terminal 2 — MediaPipe hand tracking
+- Terminal 3 — Collision object publisher
+- Terminal 4 — Planning scene monitor
+
+**Or run terminals manually:**
+
+```bash
+# Terminal 1 — Simulation
+cd ~/ros2_ws && source /opt/ros/humble/setup.bash && source ~/ros2_ws/install/setup.bash
+ros2 launch lab_robot_description lab_sim_moveit.launch.py
+
+# Terminal 2 — Hand tracking
+handtrack
+
+# Terminal 3 — Collision publisher
+source /opt/ros/humble/setup.bash && source ~/ros2_ws/install/setup.bash
+ros2 run human_robot_collab hand_to_collision
+
+# Terminal 4 — Monitor
+source /opt/ros/humble/setup.bash
+ros2 topic echo /planning_scene
+```
+
+Then in RViz: **Add → PlanningScene → OK** to see the live green collision box.
+
+### Mode Switching
+
+At the top of `src/hand_to_collision.py`:
+
+```python
+WEBCAM_MODE = True   # Development — uses webcam + fixed depth, no RealSense needed
+WEBCAM_MODE = False  # Deployment  — uses RealSense depth stream + TF transform
+```
+
+When using RealSense, connect the camera to a **USB 3.0 port** (blue ports) before launching, then run:
+```bash
+source /opt/ros/humble/setup.bash
+ros2 launch realsense2_camera rs_launch.py align_depth.enable:=true \
+  depth_module.profile:=640x480x30 rgb_camera.profile:=640x480x30
+```
+
 ---
 
-# Running the System
-
-## Quick Commands
+## Useful Commands
 
 | Command | Description |
 |---|---|
-| `builtrack` | Rebuild the hand tracking node after code changes |
-| `handtrack` | Run the hand tracking node |
-
-## Step by Step
-
-Run the hand tracking node:
-```bash
-handtrack
-```
-
-Verify the bounding box is being published (in a second terminal):
-```bash
-source /opt/ros/humble/setup.bash
-ros2 topic echo /hand_bbox
-```
+| `~/launch_hrc.sh` | Launch full pipeline with one command |
+| `handtrack` | Run hand tracking node |
+| `builtrack` | Rebuild hand tracking node after changes |
+| `ros2 topic echo /planning_scene` | Monitor live collision box updates |
+| `ros2 control list_hardware_interfaces` | Verify robot controllers are active |
 
 ---
 
-# Technical Architecture
+## Technical Stack
 
-The system is implemented using modular **ROS2 nodes**.
-
-Intel RealSense Camera  
-↓  
-C++ MediaPipe Hand Tracking Node (Bazel + ROS2)  
-↓  
-/hand_bbox topic (2D pixel bounding box)  
-↓  
-bbox_to_3d_node (ROS2) + RealSense Depth  
-↓  
-/collision_object topic (3D MoveIt2 obstacle)  
-↓  
-motion_planner_node (ROS2 + MoveIt2)  
-↓  
-UR5e Robot Execution
+| Layer | Technology |
+|---|---|
+| Hand detection | MediaPipe HandLandmarkTrackingCpu (C++, 30 FPS) |
+| Robot middleware | ROS2 Humble |
+| Motion planning | MoveIt2 |
+| Simulation | Gazebo Ignition Fortress |
+| Visualization | RViz2 |
+| Depth sensing | Intel RealSense D400 series |
+| Robot | Universal Robots UR5e (6-DOF, 5kg payload) |
+| Build system | Bazel 7.4.1 (C++), colcon (Python/ROS2) |
 
 ---
 
-# Programming Languages
+## Future Work
 
-This project uses **C++** as the primary language.
-
-C++ is used for:
-
-- Real-time hand tracking with MediaPipe (30 FPS)
-- ROS2 node communication
-- 3D coordinate transformation with TF2
-- MoveIt2 motion planning and collision avoidance
-
----
-
-# Simulation Tools
-
-**RViz**
-
-Used for visualization of robot motion, workspace geometry, and sensor data.
-
-**Gazebo**
-
-Used for simulating the robot, environment, and collaborative workspace interactions before deploying to the physical robot.
-
----
-
-# Repository Structure
-```
-Human-Robot-Collaboration---Industrial-Robotics-Project/
-├── mediapipe/
-│   ├── examples/
-│   │   └── hand_tracking_custom/
-│   │       ├── hand_tracking.cpp       # Main C++ hand tracking + ROS2 publisher
-│   │       └── BUILD                   # Bazel build file
-│   └── graphs/
-│       └── hand_tracking/
-│           └── hand_tracking_custom.pbtxt  # Custom MediaPipe graph config
-├── ros2_ws/                            # ROS2 colcon workspace (coming soon)
-│   └── src/
-│       ├── bbox_to_3d_node/            # 2D bbox → 3D collision object
-│       └── motion_planner_node/        # MoveIt2 replanning node
-├── .gitignore
-└── README.md
-```
-
----
-
-# Future Improvements
-
-Potential extensions include:
-
-- Dynamic 3D workspace mapping
-- Depth-based human detection
+- RealSense depth integration and TF2 frame calibration
+- Full end-to-end testing on physical UR5e
+- Sorting task logic — robot autonomously sorts objects around detected hand zones
 - Predictive human motion modeling
-- Multi-object task allocation between human and robot
-- Improved collision avoidance strategies
+- Multi-hand tracking support
 
 ---
 
-# Team
+## Team
 
 - Ahmed Hazem
 - Mohab Khaled
@@ -297,11 +264,4 @@ Potential extensions include:
 - Nour Ramy
 - Nour Kamel
 
-German International University  
-Industrial Robotics Course
-
----
-
-# Project Status
-
-This project is currently under active development.
+German International University — Industrial Robotics Course
