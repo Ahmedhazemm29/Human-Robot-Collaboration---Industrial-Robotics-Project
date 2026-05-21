@@ -24,7 +24,7 @@ A vision-driven human-robot collaboration system where a UR5e robot detects a hu
 
 [![BT Demo Video](https://img.youtube.com/vi/Y2fY03Ji3fM/0.jpg)](https://youtube.com/shorts/Y2fY03Ji3fM)
 
-*Demonstration of a BehaviorTree.CPP v4 pipeline controlling a UR5e robot arm. The Behavior Tree sends the robot to a target waypoint and returns it to the home position automatically. If a human hand is detected in the planned path during replanning, the robot holds position and waits — only executing once the path is clear. Validated in Gazebo Ignition simulation and on the physical UR5e.*
+*Demonstration of a BehaviorTree.CPP v4 pipeline controlling a UR5e robot arm. The Behavior Tree sends the robot to a target waypoint and returns it to the home position automatically. If a human hand is detected in the planned path during replanning, the robot holds position and waits — only executing once the path is clear. Validated in Gazebo Ignition simulation and on the physical UR5e. Part of a vision-based Human-Robot Collaboration project at German International University.*
 
 ---
 
@@ -165,12 +165,22 @@ The simulation runs in **Gazebo Ignition (Fortress)** with a custom lab descript
 └── launch_hrc.sh                     # Single-command launcher for the full HRC pipeline
 ```
 
-> ⚠️ The following packages are **not included** in this repo — install them separately:
-> - `Universal_Robots_ROS2_Driver`
-> - `Universal_Robots_ROS2_Description`
-> - `Universal_Robots_Client_Library`
-> - `Universal_Robots_ROS2_Gazebo_Simulation`
-> - `robotiq_description`
+---
+
+## Dependencies — Not Included in This Repo
+
+The following packages must be installed separately before building:
+
+| Package | GitHub |
+|---|---|
+| `Universal_Robots_ROS2_Driver` | [github.com/UniversalRobots/Universal_Robots_ROS2_Driver](https://github.com/UniversalRobots/Universal_Robots_ROS2_Driver) |
+| `Universal_Robots_ROS2_Description` | [github.com/UniversalRobots/Universal_Robots_ROS2_Description](https://github.com/UniversalRobots/Universal_Robots_ROS2_Description) |
+| `Universal_Robots_Client_Library` | [github.com/UniversalRobots/Universal_Robots_Client_Library](https://github.com/UniversalRobots/Universal_Robots_Client_Library) |
+| `Universal_Robots_ROS2_GZ_Simulation` | [github.com/UniversalRobots/Universal_Robots_ROS2_GZ_Simulation](https://github.com/UniversalRobots/Universal_Robots_ROS2_GZ_Simulation) |
+| `robotiq_description` | [github.com/PickNikRobotics/ros2_robotiq_gripper](https://github.com/PickNikRobotics/ros2_robotiq_gripper) |
+| `MediaPipe C++` | [github.com/google-ai-edge/mediapipe](https://github.com/google-ai-edge/mediapipe) |
+
+> ⚠️ MediaPipe must be built from source using Bazel 7.4.1 and placed at `~/mediapipe`. Follow the official MediaPipe C++ build instructions from the repo above.
 
 ---
 
@@ -194,19 +204,21 @@ The simulation runs in **Gazebo Ignition (Fortress)** with a custom lab descript
 git clone https://github.com/Ahmedhazemm29/Human-Robot-Collaboration---Industrial-Robotics-Project.git
 ```
 
-**2. Build the hand tracking node:**
+**2. Install all dependencies listed above**
+
+**3. Build the hand tracking node:**
 ```bash
 builtrack
 ```
 
-**3. Build the ROS2 workspace:**
+**4. Build the ROS2 workspace:**
 ```bash
 cd ~/ros2_ws
 colcon build
 source ~/ros2_ws/install/setup.bash
 ```
 
-**4. Build the BT workspace:**
+**5. Build the BT workspace:**
 ```bash
 cd ~/book_ws
 colcon build
@@ -259,12 +271,12 @@ Run these **after** the HRC stack is fully up:
 cd ~/book_ws && source install/setup.bash
 ros2 launch bt_action_server reach_server.launch.py
 
-# Terminal 7 — BT client (pass the tree XML path)
+# Terminal 7 — BT client
 cd ~/book_ws && source install/setup.bash
 ros2 launch bt_action_server bt_action.launch.py
 ```
 
-> The `bt_action.launch.py` automatically passes the correct `tree_xml_file` parameter pointing to `trees/bt_action.xml`. If running manually without the launch file, pass it explicitly:
+> If running the BT client manually without the launch file, pass the tree path explicitly:
 > ```bash
 > ros2 run bt_action_server bt_action --ros-args \
 >   -p tree_xml_file:=/home/hazem/book_ws/src/bt_action_server/trees/bt_action.xml
@@ -317,10 +329,8 @@ WEBCAM_MODE = False  # Deployment  — uses Kinect depth stream + TF transform
 ## Future Work
 
 - Complete Kinect depth integration and TF2 frame calibration
-- Full end-to-end testing on physical UR5e
 - Sorting task logic — robot autonomously sorts objects around detected hand zones
 - Predictive human motion modeling
-- Multi-hand tracking support
 - BT robustness — add `RetryNode`/`FallbackNode` error recovery
 
 ---
