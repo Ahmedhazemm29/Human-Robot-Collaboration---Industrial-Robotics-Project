@@ -1,0 +1,137 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://wiki.ros.org/xacro" name="lab_robot">
+
+  <!-- Include UR description -->
+  <xacro:include filename="$(find ur_description)/urdf/ur_macro.xacro"/>
+
+  <!-- Include Robotiq Hand-E -->
+  <xacro:include filename="$(find robotiq_hande_description)/urdf/robotiq_hande_gripper.xacro"/>   
+
+  <!-- Robotiq args -->
+  <xacro:arg name="grip_pos_min" default="0.0"/>
+  <xacro:arg name="grip_pos_max" default="0.025"/>
+  <xacro:arg name="tty_port" default="/dev/ttyUSB0"/>
+  <xacro:arg name="baudrate" default="115200"/>
+  <xacro:arg name="parity" default="N"/>
+  <xacro:arg name="data_bits" default="8"/>
+  <xacro:arg name="stop_bit" default="1"/>
+  <xacro:arg name="slave_id" default="9"/>
+  <xacro:arg name="use_fake_hardware" default="true"/>
+
+  <!-- World link -->
+  <link name="world"/>
+
+  <!-- Table -->
+  <joint name="world_to_table" type="fixed">
+    <parent link="world"/>
+    <child link="table"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+
+  <link name="table">
+    <visual>
+      <geometry>
+        <box size="1.4 0.7 0.71"/>
+      </geometry>
+      <origin xyz="0 0 0.355" rpy="0 0 0"/>
+    </visual>
+  </link>
+
+  <!-- Frame structure -->
+  <joint name="world_to_frame" type="fixed">
+    <parent link="world"/>
+    <child link="frame"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+
+  <link name="frame">
+    <!-- Bottom beam (front) -->
+    <visual>
+      <geometry><box size="2.0 0.05 0.05"/></geometry>
+      <origin xyz="0 -0.75 0" rpy="0 0 0"/>
+    </visual>
+    <!-- Bottom beam (back) -->
+    <visual>
+      <geometry><box size="2.0 0.05 0.05"/></geometry>
+      <origin xyz="0 0.75 0" rpy="0 0 0"/>
+    </visual>
+    <!-- Bottom beam (left) -->
+    <visual>
+      <geometry><box size="0.05 1.5 0.05"/></geometry>
+      <origin xyz="-1.0 0 0" rpy="0 0 0"/>
+    </visual>
+    <!-- Bottom beam (right) -->
+    <visual>
+      <geometry><box size="0.05 1.5 0.05"/></geometry>
+      <origin xyz="1.0 0 0" rpy="0 0 0"/>
+    </visual>
+
+    <!-- Top beam (front) -->
+    <visual>
+      <geometry><box size="2.0 0.05 0.05"/></geometry>
+      <origin xyz="0 -0.75 1.88" rpy="0 0 0"/>
+    </visual>
+    <!-- Top beam (back) -->
+    <visual>
+      <geometry><box size="2.0 0.05 0.05"/></geometry>
+      <origin xyz="0 0.75 1.88" rpy="0 0 0"/>
+    </visual>
+    <!-- Top beam (left) -->
+    <visual>
+      <geometry><box size="0.05 1.5 0.05"/></geometry>
+      <origin xyz="-1.0 0 1.88" rpy="0 0 0"/>
+    </visual>
+    <!-- Top beam (right) -->
+    <visual>
+      <geometry><box size="0.05 1.5 0.05"/></geometry>
+      <origin xyz="1.0 0 1.88" rpy="0 0 0"/>
+    </visual>
+
+    <!-- Vertical columns (4 corners) -->
+    <visual>
+      <geometry><box size="0.05 0.05 1.88"/></geometry>
+      <origin xyz="-1.0 -0.75 0.94" rpy="0 0 0"/>
+    </visual>
+    <visual>
+      <geometry><box size="0.05 0.05 1.88"/></geometry>
+      <origin xyz="1.0 -0.75 0.94" rpy="0 0 0"/>
+    </visual>
+    <visual>
+      <geometry><box size="0.05 0.05 1.88"/></geometry>
+      <origin xyz="-1.0 0.75 0.94" rpy="0 0 0"/>
+    </visual>
+    <visual>
+      <geometry><box size="0.05 0.05 1.88"/></geometry>
+      <origin xyz="1.0 0.75 0.94" rpy="0 0 0"/>
+    </visual>
+  </link>
+
+  <!-- Robot mounted inverted on frame above table -->
+  <xacro:ur_robot
+    name="ur"
+    tf_prefix=""
+    parent="world"
+    joint_limits_parameters_file="$(find ur_description)/config/ur5e/joint_limits.yaml"
+    kinematics_parameters_file="$(find ur_description)/config/ur5e/default_kinematics.yaml"
+    physical_parameters_file="$(find ur_description)/config/ur5e/physical_parameters.yaml"
+    visual_parameters_file="$(find ur_description)/config/ur5e/visual_parameters.yaml">
+    <origin xyz="-0.12 0.07 1.88" rpy="3.14159 0 0"/>
+  </xacro:ur_robot>
+
+  <!-- Robotiq Hand-E gripper attached to tool flange -->
+  <xacro:robotiq_hande_gripper
+    name="robotiq_hande_gripper"
+    parent="tool0"
+    prefix=""
+    grip_pos_min="$(arg grip_pos_min)"
+    grip_pos_max="$(arg grip_pos_max)"
+    tty_port="$(arg tty_port)"
+    baudrate="$(arg baudrate)"
+    parity="$(arg parity)"
+    data_bits="$(arg data_bits)"
+    stop_bit="$(arg stop_bit)"
+    slave_id="$(arg slave_id)"
+    use_fake_hardware="$(arg use_fake_hardware)"  
+  />   
+
+</robot>

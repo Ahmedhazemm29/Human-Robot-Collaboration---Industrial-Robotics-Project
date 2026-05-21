@@ -1,0 +1,17 @@
+# Colcon build artifacts
+build/
+install/
+log/
+
+# Zip files
+*.zip
+
+# Python cache
+__pycache__/
+*.pyc
+
+# VS Code
+.vscode/
+
+# Bazel
+bazel-*

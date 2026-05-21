@@ -1,0 +1,4 @@
+
+# Tell move_group the gripper joints have a default position and can be ignored for arm planning
+default_planning_pipeline: ompl
+start_state_max_bounds_error: 0.1

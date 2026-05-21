@@ -1,0 +1,126 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://wiki.ros.org/xacro" name="ur">
+
+  <!-- Includes -->
+  <xacro:include filename="$(find ur_description)/urdf/ur_macro.xacro"/>
+  <xacro:include filename="$(find robotiq_description)/urdf/robotiq_2f_85_macro.urdf.xacro"/>
+
+  <!-- Convert to property to use substitution in function -->
+  <xacro:property name="initial_positions_file" default="$(arg initial_positions_file)"/>
+
+  <!-- UR Robot Arguments -->
+  <xacro:arg name="name"              default="ur"/>
+  <xacro:arg name="ur_type"           default="ur5e"/>
+  <xacro:arg name="prefix"            default=""/>
+
+  <!-- File path arguments -->
+  <xacro:arg name="joint_limit_params"     default="$(find ur_description)/config/$(arg ur_type)/joint_limits.yaml"/>
+  <xacro:arg name="kinematics_params"      default="$(find ur_description)/config/$(arg ur_type)/default_kinematics.yaml"/>
+  <xacro:arg name="physical_params"        default="$(find ur_description)/config/$(arg ur_type)/physical_parameters.yaml"/>
+  <xacro:arg name="visual_params"          default="$(find ur_description)/config/$(arg ur_type)/visual_parameters.yaml"/>
+  <xacro:arg name="initial_positions_file" default="$(find ur_description)/config/initial_positions.yaml"/>
+  <xacro:arg name="transmission_hw_interface" default=""/>
+
+  <!-- Safety parameters -->
+  <xacro:arg name="safety_limits"      default="true"/>
+  <xacro:arg name="safety_pos_margin"  default="0.15"/>
+  <xacro:arg name="safety_k_position"  default="20"/>
+
+  <!-- ros2_control / hardware parameters -->
+  <xacro:arg name="use_fake_hardware"    default="true"/>
+  <xacro:arg name="fake_sensor_commands" default="false"/>
+  <xacro:arg name="sim_gazebo"           default="false"/>
+  <xacro:arg name="sim_ignition"         default="true"/>
+  <xacro:arg name="simulation_controllers" default="$(find lab_robot_description)/config/ur_controllers.yaml"/>
+
+  <!-- Gripper arguments -->
+  <xacro:arg name="robotiq_use_fake_hardware_grip" default="true"/>
+  <xacro:arg name="robotiq_com_port"               default="/dev/null"/>
+
+
+  <!-- World link -->
+  <link name="world"/>
+
+  <!-- Table (inlined) -->
+  <joint name="world_to_table" type="fixed">
+    <parent link="world"/>
+    <child link="table"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+  <link name="table">
+    <visual>
+      <geometry><box size="1.4 0.7 0.71"/></geometry>
+      <origin xyz="0 0 0.355" rpy="0 0 0"/>
+      <material name="grey"><color rgba="0.6 0.6 0.6 1"/></material>
+    </visual>
+    <collision>
+      <geometry><box size="1.4 0.7 0.71"/></geometry>
+      <origin xyz="0 0 0.355" rpy="0 0 0"/>
+    </collision>
+  </link>
+
+  <!-- Frame (uncomment to visualize in sim)
+  <joint name="world_to_frame" type="fixed">
+    <parent link="world"/>
+    <child link="frame"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+  <link name="frame">
+    <visual><geometry><box size="2.0 0.05 0.05"/></geometry><origin xyz="0 -0.7 1.88" rpy="0 0 0"/></visual>
+    <visual><geometry><box size="2.0 0.05 0.05"/></geometry><origin xyz="0  0.7 1.88" rpy="0 0 0"/></visual>
+    <visual><geometry><box size="0.05 1.5 0.05"/></geometry><origin xyz="-1.0 0 1.88" rpy="0 0 0"/></visual>
+    <visual><geometry><box size="0.05 1.5 0.05"/></geometry><origin xyz=" 1.0 0 1.88" rpy="0 0 0"/></visual>
+    <visual><geometry><box size="2.0 0.05 0.05"/></geometry><origin xyz="0 -0.7 0" rpy="0 0 0"/></visual>
+    <visual><geometry><box size="2.0 0.05 0.05"/></geometry><origin xyz="0  0.7 0" rpy="0 0 0"/></visual>
+    <visual><geometry><box size="0.05 1.5 0.05"/></geometry><origin xyz="-1.0 0 0" rpy="0 0 0"/></visual>
+    <visual><geometry><box size="0.05 1.5 0.05"/></geometry><origin xyz=" 1.0 0 0" rpy="0 0 0"/></visual>
+    <visual><geometry><box size="0.05 0.05 1.88"/></geometry><origin xyz="-1.0 -0.7 0.94" rpy="0 0 0"/></visual>
+    <visual><geometry><box size="0.05 0.05 1.88"/></geometry><origin xyz=" 1.0 -0.7 0.94" rpy="0 0 0"/></visual>
+    <visual><geometry><box size="0.05 0.05 1.88"/></geometry><origin xyz="-1.0  0.7 0.94" rpy="0 0 0"/></visual>
+    <visual><geometry><box size="0.05 0.05 1.88"/></geometry><origin xyz=" 1.0  0.7 0.94" rpy="0 0 0"/></visual>
+  </link> -->
+
+  <!-- UR5e arm mounted inverted -->
+  <xacro:ur_robot
+    name="$(arg name)"
+    tf_prefix="$(arg prefix)"
+    parent="world"
+    joint_limits_parameters_file="$(arg joint_limit_params)"
+    kinematics_parameters_file="$(arg kinematics_params)"
+    physical_parameters_file="$(arg physical_params)"
+    visual_parameters_file="$(arg visual_params)"
+    transmission_hw_interface="$(arg transmission_hw_interface)"
+    safety_limits="$(arg safety_limits)"
+    safety_pos_margin="$(arg safety_pos_margin)"
+    safety_k_position="$(arg safety_k_position)"
+    use_fake_hardware="$(arg use_fake_hardware)"
+    fake_sensor_commands="$(arg fake_sensor_commands)"
+    sim_gazebo="$(arg sim_gazebo)"
+    sim_ignition="$(arg sim_ignition)"
+    initial_positions="${xacro.load_yaml(initial_positions_file)}">
+    <!-- INVERTED MOUNTING: robot hangs upside down from frame -->
+    <origin xyz="-0.12 0.07 1.88" rpy="3.14159 0 0"/>
+  </xacro:ur_robot>
+
+  <!-- Robotiq 2F-85 gripper attached to tool0 -->
+  <xacro:robotiq_gripper
+    name="robotiq_2f85"
+    prefix="$(arg prefix)"
+    use_fake_hardware="$(arg robotiq_use_fake_hardware_grip)"
+    com_port="$(arg robotiq_com_port)"
+    parent="$(arg prefix)tool0">
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </xacro:robotiq_gripper>
+
+  <!-- Gazebo Ignition ros2_control plugin -->
+  <xacro:if value="$(arg sim_ignition)">
+    <gazebo>
+      <plugin filename="libign_ros2_control-system.so"
+              name="ign_ros2_control::IgnitionROS2ControlPlugin">
+        <parameters>$(arg simulation_controllers)</parameters>
+        <controller_manager_node_name>controller_manager</controller_manager_node_name>
+      </plugin>
+    </gazebo>
+  </xacro:if>
+
+</robot>
