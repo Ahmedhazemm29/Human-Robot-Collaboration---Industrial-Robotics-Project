@@ -4,17 +4,27 @@
 
 🚧 **Project Status: Core System Working — Kinect Integration In Progress | Physical UR5e Partially Tested**
 
-A vision-driven human-robot collaboration system where a UR5e robot detects a human worker's hand in real time, dynamically defines it as a forbidden zone in the MoveIt2 planning scene, and replans its trajectory to avoid it — all without physical safety barriers. The system also includes a Behavior Tree-based pick-and-place pipeline for autonomous task execution.
+A vision-driven human-robot collaboration system where a UR5e robot detects a human worker's hand in real time, dynamically defines it as a forbidden zone in the MoveIt2 planning scene, and replans its trajectory to avoid it — all without physical safety barriers. The system also includes a Behavior Tree-based pipeline for autonomous task execution with live human-aware collision avoidance.
 
 ---
 
-## Demo
+## Demos
+
+### Demo 1 — HRC Collision Avoidance Pipeline
 
 > ⚠️ This demo shows an intermediate milestone — full Kinect integration and complete physical robot testing are the next steps.
 
-[![Demo Video](https://img.youtube.com/vi/w9RsIq-Hb4k/0.jpg)](https://www.youtube.com/watch?v=w9RsIq-Hb4k)
+[![HRC Demo Video](https://img.youtube.com/vi/w9RsIq-Hb4k/0.jpg)](https://www.youtube.com/watch?v=w9RsIq-Hb4k)
 
 *Collision avoidance pipeline running in Gazebo Ignition simulation with webcam mode. The green box tracks the human hand in real time — MoveIt2 replans around it automatically.*
+
+---
+
+### Demo 2 — BT-Driven UR5e: Autonomous Navigation & Hand Collision Avoidance
+
+[![BT Demo Video](https://img.youtube.com/vi/Y2fY03Ji3fM/0.jpg)](https://youtube.com/shorts/Y2fY03Ji3fM)
+
+*Demonstration of a BehaviorTree.CPP v4 pipeline controlling a UR5e robot arm. The Behavior Tree sends the robot to a target waypoint and returns it to the home position automatically. If a human hand is detected in the planned path during replanning, the robot holds position and waits — only executing once the path is clear. Validated in Gazebo Ignition simulation and on the physical UR5e.*
 
 ---
 
@@ -22,9 +32,9 @@ A vision-driven human-robot collaboration system where a UR5e robot detects a hu
 
 In traditional industrial environments, robots are separated from humans using physical safety cages. This project removes that barrier. A camera monitors the shared workspace, detects the human worker's hand using MediaPipe, and publishes a padded 3D collision box around it to MoveIt2 at 10Hz. The UR5e robot treats this box as a live obstacle and automatically replans around it in real time.
 
-The result is a robot that can share a workspace with a human worker safely — stopping and replanning whenever the human's hand enters the robot's intended path, and resuming normal operation the moment the hand moves away.
+The result is a robot that can share a workspace with a human worker safely — holding position and waiting whenever the human's hand enters the robot's intended path, and resuming normal operation the moment the hand moves away. Crucially, this avoidance happens at **planning time** — the robot will not attempt to move at all if the path is blocked, which is the safest possible behaviour.
 
-A second pipeline built on BehaviorTree.CPP v4 handles autonomous pick-and-place task execution, with dynamic replanning triggered by the hand collision box.
+A second pipeline built on BehaviorTree.CPP v4 handles autonomous waypoint execution, with dynamic replanning triggered by the live hand collision box.
 
 ---
 
@@ -52,7 +62,8 @@ Webcam / Kinect Camera (RGB + Depth)
               v
     MoveIt2 Motion Planner
     - Treats hand box as obstacle
-    - Replans trajectory around it
+    - Holds position if path blocked
+    - Replans when path is clear
               |
               v
     BehaviorTree.CPP v4 (bt_action_server)
@@ -69,13 +80,14 @@ Webcam / Kinect Camera (RGB + Depth)
 ## Key Features
 
 - **Real-time hand detection** at 30 FPS using a custom C++ MediaPipe node
+- **Planning-time collision avoidance** — robot holds position if hand blocks the path, moves only when clear
 - **Live collision avoidance** — MoveIt2 replans around the hand box at 10Hz
 - **Atomic scene updates** — old box and new box swap in one message, no ghost boxes
 - **Table-constrained collision box** — box is clamped to the table's physical boundaries
 - **Dual mode operation** — WEBCAM_MODE for development, Kinect mode for deployment
-- **Behavior Tree pipeline** — BehaviorTree.CPP v4 pick-and-place with dynamic replanning
+- **Behavior Tree pipeline** — BehaviorTree.CPP v4 waypoint execution with dynamic replanning
 - **Gazebo Ignition simulation** — full lab environment with inverted UR5e, table, and frame
-- **Single-command launcher** — entire pipeline starts with one command
+- **Single-command launcher** — entire HRC pipeline starts with one command
 
 ---
 
@@ -93,14 +105,13 @@ The simulation runs in **Gazebo Ignition (Fortress)** with a custom lab descript
 
 ## Proven Results
 
-The collision avoidance pipeline has been tested end-to-end in simulation:
-
 - ✅ Hand detected in real time via webcam + MediaPipe at 30 FPS
 - ✅ Collision box published to MoveIt2 at 10Hz — appears as green box in RViz
-- ✅ Robot **fails to plan** when hand box is in the intended path
-- ✅ Robot **plans successfully** the moment the hand is removed
+- ✅ Robot **holds position and waits** when hand box blocks the planned path
+- ✅ Robot **plans and executes** the moment the hand is removed
 - ✅ Consistent on/off behaviour confirmed across multiple test runs
-- ✅ BT action server plans and executes to hardcoded waypoints
+- ✅ BT action server plans and executes to target waypoints
+- ✅ Robot returns to home position autonomously after each waypoint
 - ✅ Robot replans around hand obstacle mid-execution (`allowReplanning(true)`)
 - 🔄 Physical UR5e end-to-end testing — partially complete
 
@@ -138,7 +149,7 @@ The collision avoidance pipeline has been tested end-to-end in simulation:
 │
 ├── book_ws/
 │   └── src/
-│       └── bt_action_server/         # BehaviorTree.CPP v4 pick-and-place pipeline
+│       └── bt_action_server/         # BehaviorTree.CPP v4 pipeline
 │           ├── src/
 │           │   ├── reach_location_server.cpp   # MoveIt2 action server
 │           │   ├── bt_action.cpp               # BT client — ticks the tree
@@ -146,7 +157,7 @@ The collision avoidance pipeline has been tested end-to-end in simulation:
 │           ├── trees/
 │           │   └── bt_action.xml               # Behavior Tree XML definition
 │           ├── action/
-│           │   └── ReachLocation.action        # Custom action definition
+│           │   └── ReachLocation.action         # Custom action definition
 │           └── launch/
 │               ├── reach_server.launch.py
 │               └── bt_action.launch.py
@@ -181,8 +192,6 @@ The collision avoidance pipeline has been tested end-to-end in simulation:
 **1. Clone the repository:**
 ```bash
 git clone https://github.com/Ahmedhazemm29/Human-Robot-Collaboration---Industrial-Robotics-Project.git
-cd Human-Robot-Collaboration---Industrial-Robotics-Project
-git checkout master
 ```
 
 **2. Build the hand tracking node:**
@@ -208,11 +217,9 @@ source ~/book_ws/install/setup.bash
 
 ## Running the Full Pipeline
 
-### HRC Safety Stack
+### Step 1 — Real Robot Setup (Skip for Simulation)
 
-#### ⚙️ Real Robot Setup (Run First)
-
-Before starting the pipeline, launch the UR5e robot driver in a separate terminal:
+Launch the UR5e robot driver before anything else:
 
 ```bash
 ros2 launch ur_robot_driver ur_control.launch.py \
@@ -221,7 +228,9 @@ ros2 launch ur_robot_driver ur_control.launch.py \
   kinematics_params_file:="/home/hazem/ir_project/src/Universal_Robots_ROS2_Driver/ur_calibration/config/my_robot_calibration.yaml"
 ```
 
-#### Single command (recommended)
+---
+
+### Step 2 — Launch the HRC Stack
 
 ```bash
 ~/launch_hrc.sh
@@ -235,47 +244,31 @@ This automatically opens 5 terminals in sequence:
 | 2 | Kinect driver |
 | 3 | MediaPipe hand tracking node |
 | 4 | Collision object publisher (`hand_to_collision`) |
-| 5 | Planning scene monitor |
-
-#### Manual (terminal by terminal)
-
-```bash
-# Terminal 1 — Simulation
-cd ~/ros2_ws
-source /opt/ros/humble/setup.bash
-source ~/ros2_ws/install/setup.bash
-ros2 launch lab_robot_description lab_sim_moveit.launch.py
-
-# Terminal 2 — Hand tracking
-handtrack
-
-# Terminal 3 — Collision publisher
-source /opt/ros/humble/setup.bash
-source ~/ros2_ws/install/setup.bash
-ros2 run human_robot_collab hand_to_collision
-
-# Terminal 4 — Monitor
-source /opt/ros/humble/setup.bash
-ros2 topic echo /planning_scene
-```
+| 5 | Planning scene monitor (`ros2 topic echo /planning_scene`) |
 
 Once RViz is open: **Add → PlanningScene → OK** to see the live green collision box.
 
 ---
 
-### BT Pick-and-Place Pipeline
+### Step 3 — Launch the BT Pipeline
 
-Run **after** the HRC stack is fully up:
+Run these **after** the HRC stack is fully up:
 
 ```bash
 # Terminal 6 — Action server
 cd ~/book_ws && source install/setup.bash
 ros2 launch bt_action_server reach_server.launch.py
 
-# Terminal 7 — BT client
+# Terminal 7 — BT client (pass the tree XML path)
 cd ~/book_ws && source install/setup.bash
 ros2 launch bt_action_server bt_action.launch.py
 ```
+
+> The `bt_action.launch.py` automatically passes the correct `tree_xml_file` parameter pointing to `trees/bt_action.xml`. If running manually without the launch file, pass it explicitly:
+> ```bash
+> ros2 run bt_action_server bt_action --ros-args \
+>   -p tree_xml_file:=/home/hazem/book_ws/src/bt_action_server/trees/bt_action.xml
+> ```
 
 ---
 
@@ -295,11 +288,13 @@ WEBCAM_MODE = False  # Deployment  — uses Kinect depth stream + TF transform
 | Command | Description |
 |---|---|
 | `~/launch_hrc.sh` | Launch full HRC pipeline with one command |
-| `handtrack` | Run hand tracking node |
-| `builtrack` | Rebuild hand tracking node after changes |
+| `handtrack` | Run MediaPipe hand tracking node |
+| `builtrack` | Rebuild MediaPipe hand tracking node after changes |
 | `ros2 topic echo /planning_scene` | Monitor live collision box updates |
 | `ros2 control list_hardware_interfaces` | Verify robot controllers are active |
-| `ros2 pkg executables bt_action_server` | List BT executable names |
+| `ros2 pkg executables bt_action_server` | List all BT executable names |
+| `ros2 launch bt_action_server reach_server.launch.py` | Launch the ReachLocation action server |
+| `ros2 launch bt_action_server bt_action.launch.py` | Launch the BT client with tree XML |
 
 ---
 
