@@ -221,66 +221,111 @@ source ~/ros2_ws/install/setup.bash
 **5. Build the BT workspace:**
 ```bash
 cd ~/book_ws
+source ~/ur_driver/install/setup.bash
+source ~/bt_ws/install/setup.bash
 colcon build
-source ~/book_ws/install/setup.bash
+source install/setup.bash
 ```
 
 ---
 
-## Running the Full Pipeline
+## Running the Full Pipeline — Simulation
 
-### Step 1 — Real Robot Setup (Skip for Simulation)
+Open 5 terminals in order. Wait for each step to fully initialize before moving to the next.
 
-Launch the UR5e robot driver before anything else:
+---
+
+### Terminal 1 — UR5e Driver (Fake Hardware)
 
 ```bash
+cd ~/ur_driver
+source install/setup.bash
 ros2 launch ur_robot_driver ur_control.launch.py \
   ur_type:=ur5e \
   robot_ip:=192.168.1.102 \
-  kinematics_params_file:="/home/hazem/ir_project/src/Universal_Robots_ROS2_Driver/ur_calibration/config/my_robot_calibration.yaml"
+  kinematics_params_file:="/home/hazem/ur_driver/src/Universal_Robots_ROS2_Description/config/ur5e/default_kinematics.yaml" \
+  use_fake_hardware:=true
 ```
 
 ---
 
-### Step 2 — Launch the HRC Stack
+### Terminal 2 — MoveIt2
 
 ```bash
+cd ~/ur_driver
+source install/setup.bash
+ros2 launch ur_moveit_config ur_moveit.launch.py \
+  ur_type:=ur5e \
+  robot_ip:=192.168.1.102 \
+  name:="ur5e"
+```
+
+> ⚠️ Wait for `"You can start planning now!"` before launching the next terminals.
+
+---
+
+### Terminal 3 — HRC Stack (Hand Tracking + Collision Avoidance)
+
+```bash
+cd ~/ros2_ws
+source install/setup.bash
 ~/launch_hrc.sh
 ```
 
-This automatically opens 5 terminals in sequence:
+This automatically opens sub-terminals for:
 
-| Terminal | What it runs |
+| Sub-terminal | What it runs |
 |---|---|
-| 1 | Gazebo Ignition + MoveIt2 + RViz (waits 20s for full init) |
-| 2 | Kinect driver |
-| 3 | MediaPipe hand tracking node |
-| 4 | Collision object publisher (`hand_to_collision`) |
-| 5 | Planning scene monitor (`ros2 topic echo /planning_scene`) |
+| A | Kinect driver |
+| B | MediaPipe hand tracking node |
+| C | Collision object publisher (`hand_to_collision`) |
+| D | Planning scene monitor |
 
 Once RViz is open: **Add → PlanningScene → OK** to see the live green collision box.
 
 ---
 
-### Step 3 — Launch the BT Pipeline
-
-Run these **after** the HRC stack is fully up:
+### Terminal 4 — BT Action Server
 
 ```bash
-# Terminal 6 — Action server
-cd ~/book_ws && source install/setup.bash
+cd ~/book_ws
+source ~/ur_driver/install/setup.bash
+source ~/bt_ws/install/setup.bash
+source install/setup.bash
 ros2 launch bt_action_server reach_server.launch.py
+```
 
-# Terminal 7 — BT client
-cd ~/book_ws && source install/setup.bash
+---
+
+### Terminal 5 — BT Client
+
+```bash
+cd ~/book_ws
+source ~/ur_driver/install/setup.bash
+source ~/bt_ws/install/setup.bash
+source install/setup.bash
 ros2 launch bt_action_server bt_action.launch.py
 ```
 
-> If running the BT client manually without the launch file, pass the tree path explicitly:
-> ```bash
-> ros2 run bt_action_server bt_action --ros-args \
->   -p tree_xml_file:=/home/hazem/book_ws/src/bt_action_server/trees/bt_action.xml
-> ```
+> **Important:** `ur_driver` and `bt_ws` must always be sourced before `book_ws` in terminals 4 and 5. This ensures the action server links against the correct MoveIt2 and BehaviorTree.CPP libraries.
+
+---
+
+## Running the Full Pipeline — Real Robot
+
+Follow the same steps as simulation with one change in Terminal 1:
+
+```bash
+cd ~/ur_driver
+source install/setup.bash
+ros2 launch ur_robot_driver ur_control.launch.py \
+  ur_type:=ur5e \
+  robot_ip:=192.168.1.102 \
+  kinematics_params_file:="/home/hazem/ur_driver/src/Universal_Robots_ROS2_Description/config/ur5e/default_kinematics.yaml" \
+  use_fake_hardware:=false
+```
+
+> ⚠️ Ensure the robot is at home position and the workspace is clear before launching terminals 4 and 5.
 
 ---
 
