@@ -417,7 +417,6 @@ WEBCAM_MODE = False  # Deployment  — uses Kinect depth stream + TF transform
 
 ## Future Work
 
-- Complete Kinect depth integration and TF2 frame calibration
 - Sorting task logic — robot autonomously sorts objects around detected hand zones
 - Predictive human motion modeling
 - BT robustness — add `RetryNode`/`FallbackNode` error recovery
