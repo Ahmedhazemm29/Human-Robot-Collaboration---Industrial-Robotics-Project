@@ -128,7 +128,7 @@ The simulation runs in **Gazebo Ignition (Fortress)** with a custom lab descript
 | Webcam testing mode | ✅ Complete |
 | Single-command pipeline launcher | ✅ Complete |
 | BT pick-and-place pipeline (bt_action_server) | ✅ Complete |
-| Kinect depth integration | 🔄 In Progress |
+| Kinect depth integration | ✅ Complete |
 | Full end-to-end test on physical UR5e | 🔄 Partially Working |
 
 ---
@@ -229,16 +229,17 @@ source install/setup.bash
 
 ---
 
-## Running the Full Pipeline — Simulation
+## Running the Full Pipeline — Simulation (5 Terminals)
 
 Open 5 terminals in order. Wait for each step to fully initialize before moving to the next.
 
 ---
 
-### Terminal 1 — UR5e Driver (Fake Hardware)
+### Terminal 1 — Fake UR5e Driver
 
 ```bash
 cd ~/ur_driver
+colcon build --allow-overriding ur_moveit_config ur_controllers ur_description
 source install/setup.bash
 ros2 launch ur_robot_driver ur_control.launch.py \
   ur_type:=ur5e \
@@ -249,10 +250,11 @@ ros2 launch ur_robot_driver ur_control.launch.py \
 
 ---
 
-### Terminal 2 — MoveIt2
+### Terminal 2 — MoveIt
 
 ```bash
 cd ~/ur_driver
+colcon build --allow-overriding ur_moveit_config ur_controllers ur_description
 source install/setup.bash
 ros2 launch ur_moveit_config ur_moveit.launch.py \
   ur_type:=ur5e \
@@ -264,7 +266,7 @@ ros2 launch ur_moveit_config ur_moveit.launch.py \
 
 ---
 
-### Terminal 3 — HRC Stack (Hand Tracking + Collision Avoidance)
+### Terminal 3 — HRC Safety
 
 ```bash
 cd ~/ros2_ws
@@ -285,44 +287,85 @@ Once RViz is open: **Add → PlanningScene → OK** to see the live green collis
 
 ---
 
-### Terminal 4 — BT Action Server
+### Terminal 4 — Action Server
 
 ```bash
-cd ~/book_ws
-source ~/ur_driver/install/setup.bash
-source ~/bt_ws/install/setup.bash
-source install/setup.bash
-ros2 launch bt_action_server reach_server.launch.py
+source ~/.ros_env.sh
+ros2 run bt_action_server reach_location_server --ros-args -p use_sim_time:=true
 ```
 
 ---
 
-### Terminal 5 — BT Client
+### Terminal 5 — BT Executor
 
 ```bash
-cd ~/book_ws
-source ~/ur_driver/install/setup.bash
-source ~/bt_ws/install/setup.bash
-source install/setup.bash
+source ~/.ros_env.sh
 ros2 launch bt_action_server bt_action.launch.py
 ```
 
-> **Important:** `ur_driver` and `bt_ws` must always be sourced before `book_ws` in terminals 4 and 5. This ensures the action server links against the correct MoveIt2 and BehaviorTree.CPP libraries.
+---
+
+## Running the Full Pipeline — Real Robot (5 Terminals)
+
+Follow the same steps as simulation with the changes below.
 
 ---
 
-## Running the Full Pipeline — Real Robot
-
-Follow the same steps as simulation with one change in Terminal 1:
+### Terminal 1 — UR5e Driver
 
 ```bash
 cd ~/ur_driver
+colcon build --allow-overriding ur_moveit_config ur_controllers ur_description
 source install/setup.bash
 ros2 launch ur_robot_driver ur_control.launch.py \
   ur_type:=ur5e \
   robot_ip:=192.168.1.102 \
   kinematics_params_file:="/home/hazem/ur_driver/src/Universal_Robots_ROS2_Description/config/ur5e/default_kinematics.yaml" \
   use_fake_hardware:=false
+```
+
+---
+
+### Terminal 2 — MoveIt
+
+```bash
+cd ~/ur_driver
+colcon build --allow-overriding ur_moveit_config ur_controllers ur_description
+source install/setup.bash
+ros2 launch ur_moveit_config ur_moveit.launch.py \
+  ur_type:=ur5e \
+  robot_ip:=192.168.1.102 \
+  name:="ur5e"
+```
+
+> ⚠️ Wait for `"You can start planning now!"` before launching the next terminals.
+
+---
+
+### Terminal 3 — HRC Safety
+
+```bash
+cd ~/ros2_ws
+source install/setup.bash
+~/launch_hrc.sh
+```
+
+---
+
+### Terminal 4 — Action Server
+
+```bash
+source ~/.ros_env.sh
+ros2 launch bt_action_server reach_server.launch.py
+```
+
+---
+
+### Terminal 5 — BT Executor
+
+```bash
+source ~/.ros_env.sh
+ros2 launch bt_action_server bt_action.launch.py
 ```
 
 > ⚠️ Ensure the robot is at home position and the workspace is clear before launching terminals 4 and 5.
@@ -352,6 +395,7 @@ WEBCAM_MODE = False  # Deployment  — uses Kinect depth stream + TF transform
 | `ros2 pkg executables bt_action_server` | List all BT executable names |
 | `ros2 launch bt_action_server reach_server.launch.py` | Launch the ReachLocation action server |
 | `ros2 launch bt_action_server bt_action.launch.py` | Launch the BT client with tree XML |
+| `ros2 run tf2_ros tf2_echo base_link tool0` | Check robot end-effector position and orientation (use to define waypoints in `bt_action.xml`) |
 
 ---
 
