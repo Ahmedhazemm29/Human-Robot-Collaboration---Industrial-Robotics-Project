@@ -283,7 +283,6 @@ This automatically opens sub-terminals for:
 | C | Collision object publisher (`hand_to_collision`) |
 | D | Planning scene monitor |
 
-Once RViz is open: **Add → PlanningScene → OK** to see the live green collision box.
 
 ---
 
@@ -291,7 +290,9 @@ Once RViz is open: **Add → PlanningScene → OK** to see the live green collis
 
 ```bash
 source ~/.ros_env.sh
-ros2 run bt_action_server reach_location_server --ros-args -p use_sim_time:=true
+ros2 run bt_action_server reach_location_server --ros-args \
+  -p use_sim_time:=true \
+  --params-file /home/hazem/ur_driver/src/Universal_Robots_ROS2_Driver/ur_moveit_config/config/kinematics.yaml
 ```
 
 ---
