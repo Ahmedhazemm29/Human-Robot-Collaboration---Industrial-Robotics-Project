@@ -1,0 +1,203 @@
+<?xml version="1.0"?>
+<robot name="ur5e_workcell" xmlns:xacro="http://www.ros.org/wiki/xacro">
+  
+  <!-- Include Constants -->
+   <xacro:property name="initial_positions_file" default="$(arg initial_positions_file)"/>
+
+  <!-- Include UR robot macro -->
+   <xacro:include filename="$(find ur_description)/urdf/ur_macro.xacro"/>
+  
+  <!-- Include table -->
+   <xacro:include filename="$(find ur_description)/urdf/table.xacro"/>
+  
+  <!-- Include gripper -->
+   <xacro:include filename="$(find robotiq_description)/urdf/robotiq_2f_85_macro.urdf.xacro"/>
+
+
+  <!-- Robot Arguments -->
+   <xacro:arg name="name" default="ur" />
+   <xacro:arg name="tf_prefix" default="" />
+   <xacro:arg name="ur_type" default="ur5e" />
+   <xacro:arg name="joint_limit_params" default="$(find ur_description)/config/$(arg ur_type)/joint_limits.yaml"/>
+   <xacro:arg name="kinematics_params" default="$(find ur_calibration)/config/$(arg ur_type)/default_kinemastics.yaml"/>
+   <xacro:arg name="physical_params" default="$(find ur_description)/config/$(arg ur_type)/physical_parameters.yaml"/>
+   <xacro:arg name="visual_params" default="$(find ur_description)/config/$(arg ur_type)/visual_parameters.yaml"/>
+   <xacro:arg name="initial_positions_file" default="$(find ur_description)/config/initial_positions.yaml"/>
+   <xacro:arg name="transmission_hw_interface" default=""/>
+   <xacro:arg name="safety_limits" default="false"/>
+   <xacro:arg name="safety_pos_margin" default="0.15"/>
+   <xacro:arg name="safety_k_position" default="20"/>
+  <!-- ros2_control related parameters -->
+   <xacro:arg name="headless_mode" default="false" />
+   <xacro:arg name="robot_ip" default="192.168.1.102" />
+   <xacro:arg name="script_filename" default=""/>
+   <xacro:arg name="output_recipe_filename" default=""/>
+   <xacro:arg name="input_recipe_filename" default=""/>
+   <xacro:arg name="reverse_ip" default="0.0.0.0"/>
+   <xacro:arg name="script_command_port" default="50004"/>
+   <xacro:arg name="reverse_port" default="50001"/>
+   <xacro:arg name="script_sender_port" default="50002"/>
+   <xacro:arg name="trajectory_port" default="50003"/>
+  <!--   tool communication related parameters-->
+   <xacro:arg name="use_tool_communication" default="false" />
+   <xacro:arg name="tool_voltage" default="0" />
+   <xacro:arg name="tool_parity" default="0" />
+   <xacro:arg name="tool_baud_rate" default="115200" />
+   <xacro:arg name="tool_stop_bits" default="1" />
+   <xacro:arg name="tool_rx_idle_chars" default="1.5" />
+   <xacro:arg name="tool_tx_idle_chars" default="3.5" />
+   <xacro:arg name="tool_device_name" default="/tmp/ttyUR" />
+   <xacro:arg name="tool_tcp_port" default="54321" />
+  <!-- Simulation parameters -->
+   <xacro:arg name="use_fake_hardware" default="false" />
+   <xacro:arg name="fake_sensor_commands" default="false" />
+   <xacro:arg name="sim_gazebo" default="false" />
+   <xacro:arg name="sim_ignition" default="false" />
+   <xacro:arg name="simulation_controllers" default="" />
+  <!--  Table arguments -->
+   <xacro:arg name="prefix" default="" />  
+  <!-- Gripper arguments -->
+   <xacro:arg name="robotiq_use_fake_hardware" default="true" />
+   <xacro:arg name="robotiq_com_port" default="/dev/null" /> 
+
+
+  <!-- Model -->
+  <link name="world"/>
+
+  <xacro:ur_robot
+     name="$(arg name)"
+     tf_prefix="$(arg tf_prefix)"
+     parent="world"
+     joint_limits_parameters_file="$(arg joint_limit_params)"
+     kinematics_parameters_file="$(arg kinematics_params)"
+     physical_parameters_file="$(arg physical_params)"
+     visual_parameters_file="$(arg visual_params)"
+     transmission_hw_interface="$(arg transmission_hw_interface)"
+     safety_limits="$(arg safety_limits)"
+     safety_pos_margin="$(arg safety_pos_margin)"
+     safety_k_position="$(arg safety_k_position)"
+     use_fake_hardware="$(arg use_fake_hardware)"
+     fake_sensor_commands="$(arg fake_sensor_commands)"
+     sim_gazebo="$(arg sim_gazebo)"
+     sim_ignition="$(arg sim_ignition)"
+     headless_mode="$(arg headless_mode)"
+     initial_positions="${xacro.load_yaml(initial_positions_file)}"
+     use_tool_communication="$(arg use_tool_communication)"
+     tool_voltage="$(arg tool_voltage)"
+     tool_parity="$(arg tool_parity)"
+     tool_baud_rate="$(arg tool_baud_rate)"
+     tool_stop_bits="$(arg tool_stop_bits)"
+     tool_rx_idle_chars="$(arg tool_rx_idle_chars)"
+     tool_tx_idle_chars="$(arg tool_tx_idle_chars)"
+     tool_device_name="$(arg tool_device_name)"
+     tool_tcp_port="$(arg tool_tcp_port)"
+     robot_ip="$(arg robot_ip)"
+     script_filename="$(arg script_filename)"
+     output_recipe_filename="$(arg output_recipe_filename)"
+     input_recipe_filename="$(arg input_recipe_filename)"
+     reverse_ip="$(arg reverse_ip)"
+     script_command_port="$(arg script_command_port)"
+     reverse_port="$(arg reverse_port)"
+     script_sender_port="$(arg script_sender_port)"
+     trajectory_port="$(arg trajectory_port)">
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </xacro:ur_robot>
+
+  <xacro:table parent="world" prefix="$(arg prefix)">
+    <origin xyz="0 0 0" rpy="0 0 ${pi/2}" />
+  </xacro:table>
+  
+  <xacro:robotiq_gripper
+      name="robotiq_2f85"
+      parent="tool0"
+      prefix="$(arg prefix)"
+      use_fake_hardware="$(arg robotiq_use_fake_hardware)"
+      com_port="$(arg robotiq_com_port)">
+    <origin xyz="0 0 0" rpy="0 0 0" />
+  </xacro:robotiq_gripper>
+
+  <!-- ── Structural frame ──────────────────────────────────────────────────── -->
+  <joint name="world_to_frame" type="fixed">
+    <parent link="world"/>
+    <child link="frame"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+
+  <link name="frame">
+    <!-- Visual: bottom beams -->
+    <visual><geometry><box size="2.0 0.05 0.05"/></geometry><origin xyz="0 -0.75 0"        rpy="0 0 0"/><material name="frame_metal"><color rgba="0.55 0.55 0.60 1"/></material></visual>
+    <visual><geometry><box size="2.0 0.05 0.05"/></geometry><origin xyz="0  0.75 0"        rpy="0 0 0"/><material name="frame_metal"/></visual>
+    <visual><geometry><box size="0.05 1.5 0.05"/></geometry><origin xyz="-1.0 0 0"         rpy="0 0 0"/><material name="frame_metal"/></visual>
+    <visual><geometry><box size="0.05 1.5 0.05"/></geometry><origin xyz=" 1.0 0 0"         rpy="0 0 0"/><material name="frame_metal"/></visual>
+    <!-- Visual: top beams -->
+    <visual><geometry><box size="2.0 0.05 0.05"/></geometry><origin xyz="0 -0.75 1.88"     rpy="0 0 0"/><material name="frame_metal"/></visual>
+    <visual><geometry><box size="2.0 0.05 0.05"/></geometry><origin xyz="0  0.75 1.88"     rpy="0 0 0"/><material name="frame_metal"/></visual>
+    <visual><geometry><box size="0.05 1.5 0.05"/></geometry><origin xyz="-1.0 0 1.88"      rpy="0 0 0"/><material name="frame_metal"/></visual>
+    <visual><geometry><box size="0.05 1.5 0.05"/></geometry><origin xyz=" 1.0 0 1.88"      rpy="0 0 0"/><material name="frame_metal"/></visual>
+    <!-- Visual: vertical columns -->
+    <visual><geometry><box size="0.05 0.05 1.88"/></geometry><origin xyz="-1.0 -0.75 0.94" rpy="0 0 0"/><material name="frame_metal"/></visual>
+    <visual><geometry><box size="0.05 0.05 1.88"/></geometry><origin xyz=" 1.0 -0.75 0.94" rpy="0 0 0"/><material name="frame_metal"/></visual>
+    <visual><geometry><box size="0.05 0.05 1.88"/></geometry><origin xyz="-1.0  0.75 0.94" rpy="0 0 0"/><material name="frame_metal"/></visual>
+    <visual><geometry><box size="0.05 0.05 1.88"/></geometry><origin xyz=" 1.0  0.75 0.94" rpy="0 0 0"/><material name="frame_metal"/></visual>
+    <!-- Collision: bottom beams -->
+    <collision><geometry><box size="2.0 0.05 0.05"/></geometry><origin xyz="0 -0.75 0"        rpy="0 0 0"/></collision>
+    <collision><geometry><box size="2.0 0.05 0.05"/></geometry><origin xyz="0  0.75 0"        rpy="0 0 0"/></collision>
+    <collision><geometry><box size="0.05 1.5 0.05"/></geometry><origin xyz="-1.0 0 0"         rpy="0 0 0"/></collision>
+    <collision><geometry><box size="0.05 1.5 0.05"/></geometry><origin xyz=" 1.0 0 0"         rpy="0 0 0"/></collision>
+    <!-- Collision: top beams -->
+    <collision><geometry><box size="2.0 0.05 0.05"/></geometry><origin xyz="0 -0.75 1.88"     rpy="0 0 0"/></collision>
+    <collision><geometry><box size="2.0 0.05 0.05"/></geometry><origin xyz="0  0.75 1.88"     rpy="0 0 0"/></collision>
+    <collision><geometry><box size="0.05 1.5 0.05"/></geometry><origin xyz="-1.0 0 1.88"      rpy="0 0 0"/></collision>
+    <collision><geometry><box size="0.05 1.5 0.05"/></geometry><origin xyz=" 1.0 0 1.88"      rpy="0 0 0"/></collision>
+    <!-- Collision: vertical columns -->
+    <collision><geometry><box size="0.05 0.05 1.88"/></geometry><origin xyz="-1.0 -0.75 0.94" rpy="0 0 0"/></collision>
+    <collision><geometry><box size="0.05 0.05 1.88"/></geometry><origin xyz=" 1.0 -0.75 0.94" rpy="0 0 0"/></collision>
+    <collision><geometry><box size="0.05 0.05 1.88"/></geometry><origin xyz="-1.0  0.75 0.94" rpy="0 0 0"/></collision>
+    <collision><geometry><box size="0.05 0.05 1.88"/></geometry><origin xyz=" 1.0  0.75 0.94" rpy="0 0 0"/></collision>
+  </link>
+
+  <!-- ── Ceiling collision plate (bounds upward arm reach) ─────────────────── -->
+  <!-- Sits 13 cm below the top beams; prevents wild elbow-up configurations.  -->
+  <!-- Tune z if you need a tighter or looser ceiling.                          -->
+  <joint name="world_to_ceiling_plate" type="fixed">
+    <parent link="world"/>
+    <child link="ceiling_plate"/>
+    <origin xyz="0 0 1.75" rpy="0 0 0"/>
+  </joint>
+
+  <link name="ceiling_plate">
+    <visual>
+      <geometry><box size="1.90 1.40 0.02"/></geometry>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <material name="ceiling_glass"><color rgba="0.70 0.85 1.00 0.25"/></material>
+    </visual>
+    <collision>
+      <geometry><box size="1.90 1.40 0.02"/></geometry>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+    </collision>
+  </link>
+
+  <!-- ── Kinect sensor (visual only) ──────────────────────────────────────── -->
+  <!-- Hung from the front-right corner of the frame, angled to face the      -->
+  <!-- workspace centre. Body: 28 cm wide × 6.5 cm tall × 3.5 cm deep.       -->
+  <!-- rpy: roll=-30° tilts face downward; yaw=+53° rotates it from the       -->
+  <!-- corner so it looks toward (0,0) instead of straight along +Y.          -->
+  <!-- To use a different corner change xyz and negate/adjust yaw:            -->
+  <!--   front-left  (x=-1.0, y=-0.75): yaw = -0.9273                        -->
+  <!--   back-right  (x= 1.0, y= 0.75): yaw =  2.2143                        -->
+  <!--   back-left   (x=-1.0, y= 0.75): yaw = -2.2143                        -->
+  <joint name="frame_to_kinect" type="fixed">
+    <parent link="frame"/>
+    <child link="kinect_link"/>
+    <origin xyz="1.0 -0.75 1.87" rpy="-0.5236 0 0.9273"/>
+  </joint>
+
+  <link name="kinect_link">
+    <visual>
+      <geometry><box size="0.28 0.035 0.065"/></geometry>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <material name="kinect_black"><color rgba="0.08 0.08 0.08 1.0"/></material>
+    </visual>
+  </link>
+
+</robot>

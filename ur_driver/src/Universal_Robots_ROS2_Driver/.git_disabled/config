@@ -1,0 +1,12 @@
+[core]
+	repositoryformatversion = 0
+	filemode = true
+	bare = false
+	logallrefupdates = true
+[remote "origin"]
+	url = https://github.com/UniversalRobots/Universal_Robots_ROS2_Driver.git
+	fetch = +refs/heads/*:refs/remotes/origin/*
+[branch "humble"]
+	remote = origin
+	merge = refs/heads/humble
+	vscode-merge-base = origin/main

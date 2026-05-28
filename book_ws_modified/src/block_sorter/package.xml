@@ -1,0 +1,28 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>block_sorter</name>
+  <version>0.0.1</version>
+  <description>
+    Human-robot collaborative block sorting demo for UR5e + MoveIt2.
+    Watches /planning_scene for three blocks. When the human picks one
+    (a block disappears from the scene), the robot picks one of the
+    remaining two and moves it to its sort destination. Uses the same
+    hand_exclusion_zone collision-avoidance pattern as bt_action_server
+    to stop mid-motion when the human's hand intersects the planned path.
+  </description>
+  <maintainer email="hazem@todo.todo">hazem</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>geometry_msgs</depend>
+  <depend>moveit_ros_planning_interface</depend>
+  <depend>moveit_msgs</depend>
+  <depend>std_srvs</depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

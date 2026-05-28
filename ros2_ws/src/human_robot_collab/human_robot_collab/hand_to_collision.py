@@ -23,13 +23,14 @@ import tf2_geometry_msgs  # noqa: F401 — registers PointStamped transform supp
 
 BASE_FRAME     = "base_link"
 ## CAMERA_FRAME   = "camera_color_optical_frame"
-CAMERA_FRAME   = "kinect_link"          # ← changed from "world"
+CAMERA_FRAME   = "kinect_link"
 COLLISION_ID   = "hand_exclusion_zone"
-DEPTH_PADDING  = 0.05
+# DEPTH_PADDING is only used in KINECT mode (box thickness along optical axis).
+DEPTH_PADDING  = 0.15
 MARGIN_PX      = 10
 IMG_W          = 640
 IMG_H          = 480
-SAFETY_PADDING = 0.05
+SAFETY_PADDING = 0.02
 STALE_TIMEOUT  = 0.5
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -37,7 +38,7 @@ STALE_TIMEOUT  = 0.5
 #  WEBCAM_MODE = True  → webcam testing, no depth camera, skips TF transform
 #  WEBCAM_MODE = False → Kinect, full 3D deprojection, TF transform active
 # ─────────────────────────────────────────────────────────────────────────────
-WEBCAM_MODE   = True                    # ← set to False to use Kinect
+WEBCAM_MODE   = True                   # ← Kinect mode active
 FIXED_DEPTH_M = 0.9
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -51,15 +52,36 @@ KINECT_CY = 239.5
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  TABLE BOUNDARIES IN WORLD FRAME
-#  Derived from URDF: table is 1.4m x 0.7m, centered at world origin.
-#  These clamp the collision box so it can never wander off the table surface.
-#  X spans the long axis (1.4m total → ±0.7m)
-#  Y spans the short axis (0.7m total → ±0.35m)
+#  Derived from table.xacro:
+#    Visual geometry : size="1.4 x 0.71 x 0.71",  origin xyz="0 0 0.375"
+#    Joint           : xyz="0 0 0.7"  rpy="pi 0 pi/2"
+#
+#  Effect of rpy="pi 0 pi/2":
+#    pi   around X → flips local Z,  table centre Z = 0.7 - 0.375 = 0.325 m
+#    pi/2 around Z → swaps X↔Y axes
+#      local X (1.4 m) → world Y  →  Y ∈ [-0.70,  +0.70]
+#      local Y (0.71 m) → world X  →  X ∈ [-0.355, +0.355]
+#
+#  TABLE_Z_SURFACE = table centre Z + half-height = 0.325 + 0.355 = 0.68 m
+#  The collision box may slide freely in XY within these bounds and move
+#  up/down in Z, but its bottom face is floored at TABLE_Z_SURFACE so it
+#  can never penetrate the table.
 # ─────────────────────────────────────────────────────────────────────────────
-TABLE_X_MIN = -0.7
-TABLE_X_MAX =  0.7
-TABLE_Y_MIN = -0.35
-TABLE_Y_MAX =  0.35
+TABLE_X_MIN     = -0.355
+TABLE_X_MAX     =  0.355
+TABLE_Y_MIN     = -0.70
+TABLE_Y_MAX     =  0.70
+TABLE_Z_SURFACE =  0.68   # m — top face of table in world frame
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  HAND-BOX SIZING (webcam mode)
+#  Fixed hand-silhouette collision volume — not stretched across the gantry.
+#  Raise HAND_PADDING for a softer safety buffer.
+# ─────────────────────────────────────────────────────────────────────────────
+HAND_BASE_W  = 0.18   # m  — hand width  (X)
+HAND_BASE_H  = 0.22   # m  — hand length (Y, fingertip → wrist)
+HAND_BASE_D  = 0.20   # m  — hand depth  (Z)
+HAND_PADDING = 0.00
 
 
 class HandToCollision(Node):
@@ -70,7 +92,7 @@ class HandToCollision(Node):
         self.bridge             = CvBridge()
         self.latest_landmarks   = None
         self.last_landmark_time = None
-        self.latest_depth       = None  # ← removed camera_info, not needed for Kinect
+        self.latest_depth       = None
 
         self.tf_buffer   = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
@@ -90,14 +112,13 @@ class HandToCollision(Node):
 
         if not WEBCAM_MODE:
             # ── Subscribe to Kinect depth topic (published by kinect_cpp) ────
-            # Topic: /kinect/depth/image_raw  encoding: 32FC1 (metres)
+            # Topic: /depth/image_raw  encoding: 32FC1 (metres)
             self.create_subscription(
                 Image,
-                "/depth/image_raw",  # ← changed from /camera/depth/image_rect_raw
+                "/depth/image_raw",
                 self._depth_cb,
                 10
             )
-            # Note: No CameraInfo subscription needed — using fixed Kinect v1 intrinsics
 
         self.scene_pub = self.create_publisher(
             PlanningScene, "/planning_scene", 10
@@ -118,8 +139,6 @@ class HandToCollision(Node):
         self.last_landmark_time = self.get_clock().now()
 
     def _bbox_cb(self, msg: PolygonStamped):
-        # Convert PolygonStamped (4 bbox corners) into a fake PoseArray
-        # so _build_collision_object can consume it unchanged
         from geometry_msgs.msg import PoseArray, Pose
         fake = PoseArray()
         fake.header = msg.header
@@ -133,20 +152,14 @@ class HandToCollision(Node):
         self.last_landmark_time = self.get_clock().now()
 
     def _depth_cb(self, msg: Image):
-        # kinect_cpp publishes /kinect/depth/image_raw as 32FC1 in metres
         depth = self.bridge.imgmsg_to_cv2(msg, desired_encoding="passthrough")
-
-        # Safety: handle both 32FC1 (metres, from kinect_cpp) and
-        # raw 16UC1 (11-bit values) in case encoding changes
         if depth.dtype == np.uint16:
-            # Raw 11-bit → metres using standard Kinect v1 formula
             depth = depth.astype(np.float32)
             valid_mask = depth < 2047
             depth_m = np.zeros_like(depth, dtype=np.float32)
             depth_m[valid_mask] = 1.0 / (-0.00307 * depth[valid_mask] + 3.33)
             self.latest_depth = depth_m
         else:
-            # Already in metres (32FC1 from kinect_cpp)
             self.latest_depth = depth.astype(np.float32)
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -171,7 +184,7 @@ class HandToCollision(Node):
         if not WEBCAM_MODE:
             if self.latest_depth is None:
                 self.get_logger().warn(
-                    "Waiting for Kinect depth image...",  # ← updated message
+                    "Waiting for Kinect depth image...",
                     throttle_duration_sec=2.0)
                 return
 
@@ -186,7 +199,7 @@ class HandToCollision(Node):
         scene_msg                         = PlanningScene()
         scene_msg.is_diff                 = True
         scene_msg.world.collision_objects = [remove_co, co]
-        self.scene_pub.publish(scene_msg)  # this is what triggers rviz to show the green box
+        self.scene_pub.publish(scene_msg)
 
         self.get_logger().info(
             f"Collision box updated: centre=("
@@ -217,66 +230,40 @@ class HandToCollision(Node):
 
         # ── WEBCAM MODE ───────────────────────────────────────────────────
         if WEBCAM_MODE:
-            Z = FIXED_DEPTH_M
+            box_w = HAND_BASE_W + HAND_PADDING * 2
+            box_h = HAND_BASE_H + HAND_PADDING * 2
+            box_d = HAND_BASE_D + HAND_PADDING * 2
 
-            # Remap normalized pixel position (0→1) to the table's actual
-            # metric range in the world frame. The full webcam frame maps to
-            # the full table surface — hand on the left of camera = left of table.
+            # Map pixel centre -> table XY footprint, clamped to table edges.
             x_centre = TABLE_X_MIN + (u_c / IMG_W) * (TABLE_X_MAX - TABLE_X_MIN)
             y_centre = TABLE_Y_MIN + (v_c / IMG_H) * (TABLE_Y_MAX - TABLE_Y_MIN)
-
-            # Clamp so the box centre can never wander outside the table boundary.
             x_centre = float(np.clip(x_centre, TABLE_X_MIN, TABLE_X_MAX))
             y_centre = float(np.clip(y_centre, TABLE_Y_MIN, TABLE_Y_MAX))
 
-            centre_cam = np.array([x_centre, y_centre, Z])
+            # Map vertical pixel -> Z above table surface.
+            # v=0 (top of frame)   = arm raised (TABLE_Z_SURFACE + Z_RANGE)
+            # v=IMG_H (bottom)     = hand on table (TABLE_Z_SURFACE)
+            # Floor clamp ensures box never sinks into the table.
+            Z_RANGE  = 0.60
+            z_raw    = TABLE_Z_SURFACE + (1.0 - v_c / IMG_H) * Z_RANGE
+            z_centre = float(max(z_raw, TABLE_Z_SURFACE + box_d / 2.0))
 
-            # Apply the same mapping to corners so box size scales with hand size.
-            corner_tl = np.array([
-                float(np.clip(
-                    TABLE_X_MIN + (u_min / IMG_W) * (TABLE_X_MAX - TABLE_X_MIN),
-                    TABLE_X_MIN, TABLE_X_MAX)),
-                float(np.clip(
-                    TABLE_Y_MIN + (v_min / IMG_H) * (TABLE_Y_MAX - TABLE_Y_MIN),
-                    TABLE_Y_MIN, TABLE_Y_MAX)),
-                Z
-            ])
-            corner_br = np.array([
-                float(np.clip(
-                    TABLE_X_MIN + (u_max / IMG_W) * (TABLE_X_MAX - TABLE_X_MIN),
-                    TABLE_X_MIN, TABLE_X_MAX)),
-                float(np.clip(
-                    TABLE_Y_MIN + (v_max / IMG_H) * (TABLE_Y_MAX - TABLE_Y_MIN),
-                    TABLE_Y_MIN, TABLE_Y_MAX)),
-                Z
-            ])
-
-            box_w = abs(corner_br[0] - corner_tl[0]) + SAFETY_PADDING * 2
-            box_h = abs(corner_br[1] - corner_tl[1]) + SAFETY_PADDING * 2
-            box_d = DEPTH_PADDING + SAFETY_PADDING * 2
-
-            # Publish directly in world frame — no TF transform needed in webcam mode
-            # This is what actually publishes our green box
             co                 = CollisionObject()
             co.header          = Header()
-            co.header.frame_id = "world"   # ← webcam mode stays in world frame
+            co.header.frame_id = "world"
             co.header.stamp    = self.get_clock().now().to_msg()
             co.id              = COLLISION_ID
             co.operation       = CollisionObject.ADD
 
-            box            = SolidPrimitive()
-            box.type       = SolidPrimitive.BOX
-            box.dimensions = [box_w, box_h, box_d]
+            box_prim            = SolidPrimitive()
+            box_prim.type       = SolidPrimitive.BOX
+            box_prim.dimensions = [box_w, box_h, box_d]
 
             pose             = Pose()
-            pose.position    = Point(
-                x=float(centre_cam[0]),
-                y=float(centre_cam[1]),
-                z=float(centre_cam[2])
-            )
+            pose.position    = Point(x=x_centre, y=y_centre, z=z_centre)
             pose.orientation = Quaternion(x=0.0, y=0.0, z=0.0, w=1.0)
 
-            co.primitives      = [box]
+            co.primitives      = [box_prim]
             co.primitive_poses = [pose]
             return co
 
@@ -295,7 +282,6 @@ class HandToCollision(Node):
 
         Z = float(np.median(valid))
 
-        # Use fixed Kinect v1 intrinsics instead of CameraInfo
         fx, fy = KINECT_FX, KINECT_FY
         cx, cy = KINECT_CX, KINECT_CY
 
@@ -312,7 +298,7 @@ class HandToCollision(Node):
         box_d = DEPTH_PADDING + SAFETY_PADDING * 2
 
         pt                 = PointStamped()
-        pt.header.frame_id = CAMERA_FRAME   # kinect_link
+        pt.header.frame_id = CAMERA_FRAME
         pt.header.stamp    = msg.header.stamp
         pt.point.x         = float(centre_cam[0])
         pt.point.y         = float(centre_cam[1])
@@ -337,6 +323,16 @@ class HandToCollision(Node):
                 f"TF transform failed: {e}", throttle_duration_sec=2.0)
             return None
 
+        # ── WORKSPACE CLAMPING ────────────────────────────────────────────
+        # Clamp XY to gantry footprint so a detection glitch or edge-of-frame
+        # hand can never spawn a collision object outside the robot's workspace.
+        # Z is pinned to GANTRY_Z_CENTRE — conservative until the full 3-D
+        # depth pipeline is validated end-to-end.
+        # To use real Kinect depth instead, replace cz_world with pt_base.point.z
+        cx_world = float(np.clip(pt_base.point.x, GANTRY_X_MIN, GANTRY_X_MAX))
+        cy_world = float(np.clip(pt_base.point.y, GANTRY_Y_MIN, GANTRY_Y_MAX))
+        cz_world = GANTRY_Z_CENTRE
+
         co                 = CollisionObject()
         co.header          = Header()
         co.header.frame_id = BASE_FRAME
@@ -344,19 +340,15 @@ class HandToCollision(Node):
         co.id              = COLLISION_ID
         co.operation       = CollisionObject.ADD
 
-        box            = SolidPrimitive()
-        box.type       = SolidPrimitive.BOX
-        box.dimensions = [box_w, box_h, box_d]
+        box_prim           = SolidPrimitive()
+        box_prim.type      = SolidPrimitive.BOX
+        box_prim.dimensions = [box_w, box_h, box_d]
 
         pose             = Pose()
-        pose.position    = Point(
-            x=pt_base.point.x,
-            y=pt_base.point.y,
-            z=pt_base.point.z
-        )
+        pose.position    = Point(x=cx_world, y=cy_world, z=cz_world)
         pose.orientation = Quaternion(x=0.0, y=0.0, z=0.0, w=1.0)
 
-        co.primitives      = [box]
+        co.primitives      = [box_prim]
         co.primitive_poses = [pose]
         return co
 
