@@ -5,14 +5,14 @@
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Terminal 1 — Gazebo Ignition + MoveIt + RViz
-terminator -e "bash -c '
-    cd ~/ros2_ws &&
-    source /opt/ros/humble/setup.bash &&
-    source ~/ros2_ws/install/setup.bash &&
-    ros2 launch lab_robot_description lab_sim_moveit.launch.py;
-    exec bash'" &
-echo "Waiting 20 seconds for MoveIt to initialize..."
-sleep 20
+#terminator -e "bash -c '
+ #   cd ~/ros2_ws &&
+ #   source /opt/ros/humble/setup.bash &&
+   # source ~/ros2_ws/install/setup.bash &&
+  #  ros2 launch lab_robot_description lab_sim_moveit.launch.py;
+    #exec bash'" &
+#echo "Waiting 20 seconds for MoveIt to initialize..."
+#sleep 20
 
 # Terminal 2 — Kinect driver
 terminator -e "bash -c '
