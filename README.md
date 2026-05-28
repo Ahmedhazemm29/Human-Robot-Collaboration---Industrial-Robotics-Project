@@ -296,14 +296,16 @@ source install/setup.bash
 ~/launch_hrc.sh
 ```
 
-This automatically opens sub-terminals for:
+This automatically opens 4 sub-terminals:
 
 | Sub-terminal | What it runs |
 |---|---|
-| A | Kinect driver |
-| B | MediaPipe hand tracking node |
-| C | Collision object publisher (`hand_to_collision`) |
-| D | Planning scene monitor |
+| 1 | Kinect driver (`kinect_ros2_node`) |
+| 2 | MediaPipe hand tracking node |
+| 3 | Collision object publisher (`hand_to_collision`) |
+| 4 | Live `/planning_scene` topic monitor |
+
+> ℹ️ The Gazebo + MoveIt + RViz launch block is commented out inside `launch_hrc.sh` since those are started manually in Terminals 1 and 2. Uncomment it if you want the full stack to start from a single command.
 
 ---
 
@@ -440,7 +442,6 @@ WEBCAM_MODE = False  # Deployment  — uses Kinect depth stream + TF transform
 ## Future Work
 
 - Full end-to-end deployment on physical UR5e hardware
-
 
 ---
 
