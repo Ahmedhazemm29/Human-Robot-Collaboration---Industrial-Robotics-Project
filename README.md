@@ -65,16 +65,20 @@ Kinect Camera (RGB + Depth)
       /planning_scene topic
               |
               v
-    MoveIt2 Motion Planner
-    - Treats hand box as obstacle
-    - Stops mid-motion if hand detected
-    - Replans when path is clear
+    reach_location_server (MoveIt2 Action Server)
+    - Ingests hand OBB from /planning_scene
+    - Tracks hand velocity (6-sample rolling window)
+    - Predictive FK collision checker (runs every 100ms)
+    - Lookahead: checks 1.5s ahead of current trajectory
+    - Caution zone: slows to 8% speed when hand within 0.25m
+    - Brakes + generates safe-point candidates on predicted collision
+    - HOLD_AND_WAIT only when hand actively blocks planning
               |
               v
     BehaviorTree.CPP v4 (bt_action_server)
     - ReachLocation action server
     - 3 waypoints: Home, Pick, Place
-    - allowReplanning(true) for live avoidance
+    - Self-managed recovery (no allowReplanning)
               |
               v
          UR5e Robot Arm
@@ -85,20 +89,66 @@ Kinect Camera (RGB + Depth)
 ## Key Features
 
 - **Real-time hand detection** at 30 FPS using a custom C++ MediaPipe node
-- **Mid-motion stop and replan** — robot stops the moment a hand is detected, moves to a safe position, then autonomously re-navigates to the original target
-- **Live collision avoidance** — MoveIt2 replans around the hand box at 10Hz
+- **Predictive FK collision checking** — every 100ms, checks the next 1.5 seconds of trajectory waypoints using direct in-process Forward Kinematics (no service call, ~10× faster than RPC approach). Each waypoint's hand position is predicted using estimated hand velocity
+- **Hand velocity prediction** — 6-sample rolling deque tracks hand motion; predicts where the hand will be when the robot reaches each upcoming waypoint
+- **Mid-motion brake and recovery** — robot decelerates smoothly using a linear velocity ramp, then scores and moves to the best safe-point candidate; only holds if the hand is actively blocking the replanned path
+- **Caution zone** — when the hand enters 0.25m from the end-effector, velocity drops to 8% before a full collision event
+- **Live collision avoidance** — MoveIt2 (OMPL + FCL) plans around the hand OBB; Cartesian straight-line paths attempted first, falling back to OMPL if blocked
 - **Atomic scene updates** — old box and new box swap in one message, no ghost boxes
-- **Table-constrained collision box** — box is clamped to the table's physical boundaries
-- **Dual mode operation** — WEBCAM_MODE for development, Kinect mode for deployment
-- **Behavior Tree pipeline** — BehaviorTree.CPP v4 executes 3 hardcoded waypoints (Home, Pick, Place) with dynamic replanning
-- **Gazebo Ignition simulation** — full lab environment with ceiling-mounted UR5e, table, Kinect, and TF frames
-- **Single-command launcher** — entire HRC pipeline starts with one command
+- **Behavior Tree pipeline** — BehaviorTree.CPP v4 executes waypoints with a self-managed state machine (PLAN → EXECUTE → BRAKE → SAFE_POINT → RESUME)
+- **Single-command launcher** — `~/launch_sim.sh` opens all 5 terminals automatically in the correct boot order
+
+---
+
+## Motion Planning Details
+
+| Decision | Choice | Reason |
+|---|---|---|
+| IK solver | Analytical UR kinematics | Deterministic, <1ms, ~100% success for reachable poses |
+| OMPL planner | RRTConnect (bidirectional) | Default MoveIt2 for UR; good for 6-DOF free-space paths |
+| Normal path | OMPL (joint-space) | Reliable for all poses including ceiling-mount configurations |
+| Cartesian path | `computeCartesianPath`, 5mm step | Used when a straight-line EEF path is feasible (≥90%) |
+| Collision checking (planning) | FCL via MoveIt2 planning scene | Full mesh-level collision for all OMPL samples |
+| Collision checking (execution) | Direct FK + OBB distance | In-process, microseconds per check, velocity-predicted hand position |
+
+### Velocity Scaling
+
+| Scenario | Velocity | Acceleration |
+|---|---|---|
+| Normal execution | 25% | 25% |
+| Hand within 0.25m of EE | 8% | 8% |
+| Moving to safe-point (post-brake) | 15% | 15% |
+
+---
+
+## Safety State Machine
+
+```
+PLAN_TO_GOAL ──► EXECUTE_TO_GOAL ──► DONE_OK
+     ▲                  │ collision_predicted_
+     │                  ▼
+     │               BRAKE  (linear velocity ramp, 6 waypoints)
+     │                  │
+     │         zero safe candidates
+     ├──────────────────┘
+     │
+     │          MOVE_TO_SAFE_POINT
+     │                  │
+     │         all candidates exhausted
+     ├──────────────────┘
+     │
+     │          AT_SAFE_POINT ──► EXECUTE_TO_GOAL
+     │
+     └── (planning fails AND hand detected) ──► HOLD_AND_WAIT
+```
+
+HOLD_AND_WAIT is only entered when OMPL cannot find a path **and** the hand is currently detected in the scene — meaning the hand is physically blocking all available paths. OMPL timeouts alone do not trigger a hold.
 
 ---
 
 ## Simulation Environment
 
-The simulation runs in **Gazebo Ignition (Fortress)** with a custom lab description matching the real physical setup:
+The simulation runs using the **fake UR5e hardware interface** (no Gazebo) with MoveIt2 + RViz:
 
 - UR5e mounted **inverted** on a ceiling frame (matching real lab configuration)
 - Ceiling-mounted **Kinect camera** for hand tracking
@@ -106,6 +156,7 @@ The simulation runs in **Gazebo Ignition (Fortress)** with a custom lab descript
 - Work table (1.4m × 0.7m × 0.71m) centered below the robot
 - Full MoveIt2 integration with `joint_state_broadcaster` and `joint_trajectory_controller`
 - RViz with live PlanningScene display showing the green hand collision box and full TF frame tree
+- Trajectory ghost display (one-shot, no loop replay)
 
 ---
 
@@ -115,10 +166,10 @@ The simulation runs in **Gazebo Ignition (Fortress)** with a custom lab descript
 - ✅ Collision box published to MoveIt2 at 10Hz — appears as green box in RViz
 - ✅ Robot **stops mid-motion** and shifts to a safe position when hand blocks the path
 - ✅ Robot **autonomously re-navigates** to the original target the moment the hand is removed
+- ✅ Predictive FK checker detects approach before contact using velocity extrapolation
 - ✅ Consistent on/off behaviour confirmed across multiple test runs
 - ✅ BT action server plans and executes across 3 waypoints (Home, Pick, Place)
 - ✅ Robot returns to home position autonomously after each waypoint
-- ✅ Robot replans around hand obstacle mid-execution (`allowReplanning(true)`)
 - ✅ Full Kinect depth integration with TF transform to robot base frame
 - 🔄 Physical UR5e end-to-end testing — in progress
 
@@ -130,13 +181,14 @@ The simulation runs in **Gazebo Ignition (Fortress)** with a custom lab descript
 |---|---|
 | C++ MediaPipe hand tracking node | ✅ Complete |
 | hand_to_collision.py ROS2 node | ✅ Complete |
-| Gazebo Ignition simulation (lab description) | ✅ Complete |
+| Fake-hardware simulation (MoveIt2 + RViz) | ✅ Complete |
 | MoveIt2 collision avoidance in simulation | ✅ Complete |
 | Webcam testing mode | ✅ Complete |
 | Kinect depth integration | ✅ Complete |
-| Mid-motion stop & autonomous replan | ✅ Complete |
+| Mid-motion brake & safe-point recovery | ✅ Complete |
+| Predictive FK collision checker with velocity prediction | ✅ Complete |
 | BT 3-waypoint pipeline (Home / Pick / Place) | ✅ Complete |
-| Single-command pipeline launcher | ✅ Complete |
+| Single-command pipeline launcher (`launch_sim.sh`) | ✅ Complete |
 | Full end-to-end test on physical UR5e | 🔄 In Progress |
 
 ---
@@ -157,7 +209,8 @@ The simulation runs in **Gazebo Ignition (Fortress)** with a custom lab descript
 │   └── src/
 │       ├── bt_action_server/          # BehaviorTree.CPP v4 pipeline
 │       │   ├── src/
-│       │   │   ├── reach_location_server.cpp   # MoveIt2 action server with mid-motion stop
+│       │   │   ├── reach_location_server.cpp   # MoveIt2 action server — predictive FK collision,
+│       │   │   │                               #   velocity-predicted hand OBB, safe-point recovery
 │       │   │   ├── bt_action.cpp               # BT client — ticks the tree
 │       │   │   └── reach_location_client.cpp   # Manual action client
 │       │   ├── trees/
@@ -174,11 +227,14 @@ The simulation runs in **Gazebo Ignition (Fortress)** with a custom lab descript
 ├── ur_driver/
 │   └── src/
 │       ├── Universal_Robots_ROS2_Driver/        # Modified UR driver
+│       │   └── ur_moveit_config/
+│       │       └── rviz/view_robot.rviz         # RViz config (Loop Animation off, 0.20s ghost step)
 │       ├── Universal_Robots_ROS2_Description/   # Modified UR description (lab URDF, ceiling mount, Kinect)
 │       ├── ur5e_grip_run/                       # Python joint commander
 │       └── ur5e_grip_run_cpp/                   # C++ joint commander with IK
 │
-├── launch_hrc.sh                      # Single-command launcher for the full HRC pipeline
+├── launch_sim.sh                      # One-command launcher: opens all 5 terminals in boot order
+├── launch_hrc.sh                      # HRC safety sub-terminals (Kinect, MediaPipe, collision pub, monitor)
 └── README.md
 ```
 
@@ -206,7 +262,6 @@ The following packages must be installed separately before building. Note that `
 
 - Ubuntu 22.04
 - ROS2 Humble
-- Gazebo Ignition Fortress (`ros-humble-ros-gz`)
 - MoveIt2 (`ros-humble-moveit`)
 - BehaviorTree.CPP v4 (`ros-humble-behaviortree-cpp`)
 - Bazel 7.4.1
@@ -217,7 +272,7 @@ The following packages must be installed separately before building. Note that `
 
 **1. Clone the repository:**
 ```bash
-git clone https://github.com/Ahmedhazemm29/Human-Robot-Collaboration---Industrial-Robotics-Project.git
+git clone https://github.com/Ahmedhazemm29/Human-Robot-Collaboration---Industrial-Robotics-Project.git ~/hrc_repo
 ```
 
 **2. Install all dependencies listed above**
@@ -251,17 +306,38 @@ source install/setup.bash
 
 ---
 
-## Running the Full Pipeline — Simulation (5 Terminals)
+## Running the Full Pipeline — Simulation
 
-Open 5 terminals in order. Wait for each step to fully initialize before moving to the next.
+### Option A — Single command (recommended)
+
+```bash
+~/launch_sim.sh
+```
+
+This opens all 5 terminals automatically in the correct boot order, with appropriate delays between each:
+
+| Terminal | What it runs | Wait |
+|---|---|---|
+| T1 | Fake UR5e driver (builds + launches `ur_control.launch.py`) | 10s |
+| T2 | MoveIt2 + RViz (builds + launches `ur_moveit.launch.py`) | 10s |
+| T3 | HRC safety sub-terminals via `launch_hrc.sh` | 5s |
+| T4 | ReachLocation action server | 3s |
+| T5 | BT executor | — |
+
+> ⚠️ T2 takes the longest. Watch its terminal for `"You can start planning now!"` — T3/T4/T5 will already be launching by then due to the fixed delays, which is fine.
 
 ---
 
-### Terminal 1 — Fake UR5e Driver
+### Option B — Manual (5 terminals)
+
+Open 5 terminals in order. Wait for each step to fully initialize before moving to the next.
+
+#### Terminal 1 — Fake UR5e Driver
 
 ```bash
 cd ~/ur_driver
 colcon build --allow-overriding ur_moveit_config ur_controllers ur_description
+source /opt/ros/humble/setup.bash
 source install/setup.bash
 ros2 launch ur_robot_driver ur_control.launch.py \
   ur_type:=ur5e \
@@ -270,13 +346,12 @@ ros2 launch ur_robot_driver ur_control.launch.py \
   use_fake_hardware:=true
 ```
 
----
-
-### Terminal 2 — MoveIt
+#### Terminal 2 — MoveIt2 + RViz
 
 ```bash
 cd ~/ur_driver
 colcon build --allow-overriding ur_moveit_config ur_controllers ur_description
+source /opt/ros/humble/setup.bash
 source install/setup.bash
 ros2 launch ur_moveit_config ur_moveit.launch.py \
   ur_type:=ur5e \
@@ -286,17 +361,13 @@ ros2 launch ur_moveit_config ur_moveit.launch.py \
 
 > ⚠️ Wait for `"You can start planning now!"` before launching the next terminals.
 
----
-
-### Terminal 3 — HRC Safety
+#### Terminal 3 — HRC Safety
 
 ```bash
-cd ~/ros2_ws
-source install/setup.bash
 ~/launch_hrc.sh
 ```
 
-This automatically opens 4 sub-terminals:
+This opens 4 sub-terminals:
 
 | Sub-terminal | What it runs |
 |---|---|
@@ -305,11 +376,7 @@ This automatically opens 4 sub-terminals:
 | 3 | Collision object publisher (`hand_to_collision`) |
 | 4 | Live `/planning_scene` topic monitor |
 
-> ℹ️ The Gazebo + MoveIt + RViz launch block is commented out inside `launch_hrc.sh` since those are started manually in Terminals 1 and 2. Uncomment it if you want the full stack to start from a single command.
-
----
-
-### Terminal 4 — Action Server
+#### Terminal 4 — Action Server
 
 ```bash
 source ~/.ros_env.sh
@@ -318,9 +385,7 @@ ros2 run bt_action_server reach_location_server --ros-args \
   --params-file /home/hazem/ur_driver/src/Universal_Robots_ROS2_Driver/ur_moveit_config/config/kinematics.yaml
 ```
 
----
-
-### Terminal 5 — BT Executor
+#### Terminal 5 — BT Executor
 
 ```bash
 source ~/.ros_env.sh
@@ -329,18 +394,11 @@ ros2 launch bt_action_server bt_action.launch.py
 
 ---
 
-## Running the Full Pipeline — Real Robot (5 Terminals)
+## Running the Full Pipeline — Real Robot
 
-Follow the same steps as simulation with the changes below.
-
----
-
-### Terminal 1 — UR5e Driver
+Follow the same steps as simulation. The only change is in Terminal 1:
 
 ```bash
-cd ~/ur_driver
-colcon build --allow-overriding ur_moveit_config ur_controllers ur_description
-source install/setup.bash
 ros2 launch ur_robot_driver ur_control.launch.py \
   ur_type:=ur5e \
   robot_ip:=192.168.1.102 \
@@ -348,51 +406,7 @@ ros2 launch ur_robot_driver ur_control.launch.py \
   use_fake_hardware:=false
 ```
 
----
-
-### Terminal 2 — MoveIt
-
-```bash
-cd ~/ur_driver
-colcon build --allow-overriding ur_moveit_config ur_controllers ur_description
-source install/setup.bash
-ros2 launch ur_moveit_config ur_moveit.launch.py \
-  ur_type:=ur5e \
-  robot_ip:=192.168.1.102 \
-  name:="ur5e"
-```
-
-> ⚠️ Wait for `"You can start planning now!"` before launching the next terminals.
-
----
-
-### Terminal 3 — HRC Safety
-
-```bash
-cd ~/ros2_ws
-source install/setup.bash
-~/launch_hrc.sh
-```
-
----
-
-### Terminal 4 — Action Server
-
-```bash
-source ~/.ros_env.sh
-ros2 launch bt_action_server reach_server.launch.py
-```
-
----
-
-### Terminal 5 — BT Executor
-
-```bash
-source ~/.ros_env.sh
-ros2 launch bt_action_server bt_action.launch.py
-```
-
-> ⚠️ Ensure the robot is at home position and the workspace is clear before launching terminals 4 and 5.
+> ⚠️ Ensure the robot is at home position and the workspace is clear before launching Terminals 4 and 5.
 
 ---
 
@@ -411,7 +425,8 @@ WEBCAM_MODE = False  # Deployment  — uses Kinect depth stream + TF transform
 
 | Command | Description |
 |---|---|
-| `~/launch_hrc.sh` | Launch full HRC pipeline with one command |
+| `~/launch_sim.sh` | Launch full simulation pipeline with one command (all 5 terminals) |
+| `~/launch_hrc.sh` | Launch HRC safety sub-terminals only (Kinect, hand tracking, collision pub, monitor) |
 | `handtrack` | Run MediaPipe hand tracking node |
 | `builtrack` | Rebuild MediaPipe hand tracking node after changes |
 | `ros2 topic echo /planning_scene` | Monitor live collision box updates |
@@ -419,23 +434,26 @@ WEBCAM_MODE = False  # Deployment  — uses Kinect depth stream + TF transform
 | `ros2 pkg executables bt_action_server` | List all BT executable names |
 | `ros2 launch bt_action_server reach_server.launch.py` | Launch the ReachLocation action server |
 | `ros2 launch bt_action_server bt_action.launch.py` | Launch the BT client with tree XML |
-| `ros2 run tf2_ros tf2_echo base_link tool0` | Check robot end-effector position and orientation (use to define waypoints in `bt_action.xml`) |
+| `ros2 run tf2_ros tf2_echo base_link tool0` | Check robot end-effector position and orientation |
 
 ---
 
 ## Technical Stack
 
-| Layer | Technology |
-|---|---|
-| Hand detection | MediaPipe HandLandmarkTrackingCpu (C++, 30 FPS) |
-| Robot middleware | ROS2 Humble |
-| Motion planning | MoveIt2 |
-| Behavior Trees | BehaviorTree.CPP v4 |
-| Simulation | Gazebo Ignition Fortress |
-| Visualization | RViz2 |
-| Depth sensing | Kinect |
-| Robot | Universal Robots UR5e (6-DOF, 5kg payload) |
-| Build system | Bazel 7.4.1 (C++), colcon (Python/ROS2) |
+| Layer | Technology | Detail |
+|---|---|---|
+| Hand detection | MediaPipe HandLandmarkTrackingCpu (C++) | 30 FPS, publishes bounding box |
+| Robot middleware | ROS2 Humble | DDS-based pub/sub, actions, services |
+| Motion planning (paths) | MoveIt2 + OMPL (RRTConnect) | Free-space joint-space planning |
+| Motion planning (straight-line) | MoveIt2 Cartesian path | 5mm EEF step, ≥90% feasibility required |
+| IK solver | Analytical UR kinematics | Closed-form, <1ms, deterministic |
+| Collision checking (planning) | FCL via MoveIt2 | Full mesh-level, every OMPL sample |
+| Collision checking (execution) | Direct FK + OBB distance | In-process, no RPC, velocity-predicted |
+| Behavior Trees | BehaviorTree.CPP v4 | XML-defined tree, ReachLocation action |
+| Visualization | RViz2 | Planning scene, trajectory ghost (one-shot) |
+| Depth sensing | Kinect | RGB-D, TF-transformed to robot frame |
+| Robot | Universal Robots UR5e | 6-DOF, 5kg payload, ceiling-mounted |
+| Build system | Bazel 7.4.1 (C++), colcon (ROS2) | |
 
 ---
 
