@@ -10,11 +10,12 @@ find_package(rclcpp REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(moveit_ros_planning_interface REQUIRED)
 find_package(moveit_msgs REQUIRED)
+find_package(std_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
 
 add_executable(sort_blocks src/sort_blocks.cpp)
 ament_target_dependencies(sort_blocks
-  rclcpp geometry_msgs moveit_ros_planning_interface moveit_msgs std_srvs)
+  rclcpp geometry_msgs moveit_ros_planning_interface moveit_msgs std_msgs std_srvs)
 
 install(TARGETS sort_blocks
   DESTINATION lib/${PROJECT_NAME})

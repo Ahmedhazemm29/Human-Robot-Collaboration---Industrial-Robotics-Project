@@ -35,6 +35,7 @@
 #include <moveit_msgs/msg/collision_object.hpp>
 #include <moveit_msgs/msg/robot_state.hpp>
 #include <moveit_msgs/srv/get_state_validity.hpp>
+#include <std_msgs/msg/bool.hpp>
 #include <std_srvs/srv/trigger.hpp>
 
 #include <algorithm>
@@ -82,6 +83,9 @@ public:
             std::bind(&BlockSorterNode::on_start_request, this,
                       std::placeholders::_1, std::placeholders::_2));
 
+        done_pub_ = this->create_publisher<std_msgs::msg::Bool>(
+            "/block_sorter/done", rclcpp::QoS(1).transient_local());
+
         RCLCPP_INFO(this->get_logger(),
                     "block_sorter ready — waiting for `ros2 service call "
                     "/block_sorter/start std_srvs/srv/Trigger {}`.");
@@ -96,12 +100,16 @@ public:
 private:
     static constexpr const char * kPlanningGroup = "ur_manipulator";
     static constexpr const char * kHandObjectId  = "hand_exclusion_zone";
-    static constexpr double kApproachZOffset     = 0.10;   // m above block / slot
+    // Offset from block/slot centre Z to EEF (tool0/flange) height.
+    // Derived from the measured world->tool0 pick pose: tool0 sits at
+    // Z = 0.916 m when the block centre is on the table at Z = 0.71 m.
+    // Derived: pick_z_tool0 (0.916) - block_cz (0.71) = 0.206 m.
+    static constexpr double kApproachZOffset     = 0.206;  // m
 
-    // Top-down orientation copied from reach_location_server's hardcoded pose
-    // — adjust to your end-effector convention.
+    // Top-down orientation measured from the real robot at the pick pose
+    // (world->tool0, xyzw). RPY ≈ [178.6 deg, -1.2 deg, 94.5 deg].
     struct Quat { double x, y, z, w; };
-    static constexpr Quat kTopOrientation = {-0.087, 0.996, 0.010, 0.007};
+    static constexpr Quat kTopOrientation = {0.679, 0.734, 0.016, 0.001};
 
     // Each block's destination on the sorted side of the table.
     // Edit these to match where you actually want each block placed.
@@ -114,6 +122,7 @@ private:
     rclcpp::Subscription<moveit_msgs::msg::PlanningScene>::SharedPtr planning_scene_sub_;
     rclcpp::Client<moveit_msgs::srv::GetStateValidity>::SharedPtr   validity_client_;
     rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr              start_service_;
+    rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr               done_pub_;
 
     // Trigger-driven run: the service callback launches run() on a worker
     // thread and returns immediately. is_running_ rejects duplicate triggers.
@@ -201,11 +210,12 @@ const std::map<std::string, geometry_msgs::msg::Pose> & BlockSorterNode::slotMap
         p.position.x = x; p.position.y = y; p.position.z = z;
         return withOrientation(p);
     };
-    // Three sort slots, placed in a row on the far side of the workspace.
-    // Tune to your table layout.
-    slots["block_1"] = make(0.50, -0.15, 1.10);
-    slots["block_2"] = make(0.50,  0.00, 1.10);
-    slots["block_3"] = make(0.50,  0.15, 1.10);
+    // Three sort slots on the drop side of the table (x ≈ -0.144),
+    // arranged along Y with 8 cm centre-to-centre spacing (3 cm block + 5 cm gap).
+    // Z = table surface (0.68 m) + half block height (0.03 m) = 0.71 m.
+    slots["block_1"] = make(-0.144,  0.333, 0.71);
+    slots["block_2"] = make(-0.144,  0.413, 0.71);
+    slots["block_3"] = make(-0.144,  0.493, 0.71);
     return slots;
 }
 
@@ -544,6 +554,9 @@ void BlockSorterNode::run()
     }
 
     RCLCPP_INFO(this->get_logger(), "Sorting complete.");
+    std_msgs::msg::Bool done_msg;
+    done_msg.data = true;
+    done_pub_->publish(done_msg);
 }
 
 // ════════════════════════════════════════════════════════════════════

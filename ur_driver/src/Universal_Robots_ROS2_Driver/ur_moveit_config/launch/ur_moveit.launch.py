@@ -149,7 +149,9 @@ def launch_setup(context, *args, **kwargs):
             " ",
         ]
     )
-    robot_description_semantic = {"robot_description_semantic": robot_description_semantic_content}
+    robot_description_semantic = {
+        "robot_description_semantic": ParameterValue(robot_description_semantic_content, value_type=str)
+    }
 
     publish_robot_description_semantic = {
         "publish_robot_description_semantic": _publish_robot_description_semantic
@@ -165,17 +167,38 @@ def launch_setup(context, *args, **kwargs):
             os.path.join("config", str(moveit_joint_limits_file.perform(context))),
         )
     }
+    # Pilz LIN/CIRC commands need Cartesian velocity/acceleration limits. They
+    # live in the same robot_description_planning namespace as the joint limits.
+    cartesian_limits_yaml = load_yaml("ur_moveit_config", "config/pilz_cartesian_limits.yaml")
+    if cartesian_limits_yaml:
+        robot_description_planning["robot_description_planning"].update(cartesian_limits_yaml)
 
-    # Planning Configuration
-    ompl_planning_pipeline_config = {
-        "move_group": {
-            "planning_plugin": "ompl_interface/OMPLPlanner",
-            "request_adapters": """default_planner_request_adapters/AddTimeOptimalParameterization default_planner_request_adapters/FixWorkspaceBounds default_planner_request_adapters/FixStartStateBounds default_planner_request_adapters/FixStartStateCollision default_planner_request_adapters/FixStartStatePathConstraints""",
-            "start_state_max_bounds_error": 0.1,
-        }
-    }
+    # Planning Configuration — two pipelines registered side by side:
+    #   ompl  : sampling-based, kept as the default (RViz interactive planning,
+    #           and the action server's fallback when Pilz can't solve a pose).
+    #   pilz  : Pilz Industrial Motion Planner. Deterministic PTP (smooth joint
+    #           moves) + LIN (straight Cartesian lines). The action server asks
+    #           for this explicitly to get repeatable, non-erratic motion.
     ompl_planning_yaml = load_yaml("ur_moveit_config", "config/ompl_planning.yaml")
-    ompl_planning_pipeline_config["move_group"].update(ompl_planning_yaml)
+    ompl_config = {
+        "planning_plugin": "ompl_interface/OMPLPlanner",
+        "request_adapters": """default_planner_request_adapters/AddTimeOptimalParameterization default_planner_request_adapters/FixWorkspaceBounds default_planner_request_adapters/FixStartStateBounds default_planner_request_adapters/FixStartStateCollision default_planner_request_adapters/FixStartStatePathConstraints""",
+        "start_state_max_bounds_error": 0.1,
+    }
+    ompl_config.update(ompl_planning_yaml)
+
+    pilz_config = {
+        "planning_plugin": "pilz_industrial_motion_planner/CommandPlanner",
+        "request_adapters": "",
+        "default_planner_config": "PTP",
+    }
+
+    planning_pipelines_config = {
+        "planning_pipelines": ["ompl", "pilz_industrial_motion_planner"],
+        "default_planning_pipeline": "ompl",
+        "ompl": ompl_config,
+        "pilz_industrial_motion_planner": pilz_config,
+    }
 
     # Trajectory Execution Configuration
     controllers_yaml = load_yaml("ur_moveit_config", "config/controllers.yaml")
@@ -222,7 +245,7 @@ def launch_setup(context, *args, **kwargs):
             publish_robot_description_semantic,
             robot_description_kinematics,
             robot_description_planning,
-            ompl_planning_pipeline_config,
+            planning_pipelines_config,
             trajectory_execution,
             moveit_controllers,
             planning_scene_monitor_parameters,
@@ -245,7 +268,7 @@ def launch_setup(context, *args, **kwargs):
         parameters=[
             robot_description,
             robot_description_semantic,
-            ompl_planning_pipeline_config,
+            planning_pipelines_config,
             robot_description_kinematics,
             robot_description_planning,
             warehouse_ros_config,

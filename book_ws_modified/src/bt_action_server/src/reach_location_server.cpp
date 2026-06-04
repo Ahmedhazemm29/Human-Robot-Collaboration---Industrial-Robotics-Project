@@ -259,7 +259,7 @@ private:
 
     static constexpr const char * kHandObjectId  = "hand_exclusion_zone";
     static constexpr const char * kPlanningGroup = "ur_manipulator";
-    static constexpr int    kMaxReplanAttempts   = 10;
+    static constexpr int    kMaxReplanAttempts   = 3;
 
     // Links checked in direct FK collision detection (origin vs hand OBB)
     static constexpr const char * kCheckedLinks[] = {
@@ -493,14 +493,12 @@ private:
         { std::lock_guard<std::mutex> lk(hand_mutex_); box = hand_box_; }
 
         if (!detected || !box.valid) {
-            if (caution_active_.load() && is_executing_.load()) {
+            if (caution_active_.load()) {
+                // Hand left the scene entirely — flag a speed change for the
+                // next plan without interrupting the current trajectory.
                 RCLCPP_INFO(this->get_logger(),
-                    "Hand left caution zone — queuing acceleration to normal speed.");
+                    "Hand cleared — will resume normal speed after current move.");
                 caution_cleared_.store(true);
-                caution_active_.store(false);
-                std::lock_guard<std::mutex> lk(move_group_mutex_);
-                if (active_move_group_) active_move_group_->stop();
-            } else {
                 caution_active_.store(false);
             }
             return;
@@ -520,20 +518,21 @@ private:
         const double dist = distance_point_to_obb(ee_pos, box);
 
         if (dist < caution_distance_m_ && !caution_active_.load()) {
+            // Hand entered caution zone — flag for next replan, do NOT stop
+            // the running trajectory (avoids the stop→replan lurch).
             RCLCPP_WARN(this->get_logger(),
-                "Hand %.3fm from EE (threshold %.2fm) — decelerating to caution speed.",
+                "Hand %.3fm from EE (threshold %.2fm) — will replan at caution speed.",
                 dist, caution_distance_m_);
             caution_triggered_.store(true);
             caution_active_.store(true);
             std::lock_guard<std::mutex> lk2(move_group_mutex_);
             if (active_move_group_) active_move_group_->stop();
         } else if (dist >= caution_distance_m_ * 1.3 && caution_active_.load()) {
+            // Hand left the caution zone — flag for next replan, do NOT stop.
             RCLCPP_INFO(this->get_logger(),
-                "Hand %.3fm from EE — resuming normal speed.", dist);
+                "Hand %.3fm from EE — will resume normal speed after current move.", dist);
             caution_cleared_.store(true);
             caution_active_.store(false);
-            std::lock_guard<std::mutex> lk2(move_group_mutex_);
-            if (active_move_group_) active_move_group_->stop();
         }
     }
 
@@ -778,7 +777,11 @@ private:
         return p;
     }
 
-    // Cartesian-first with OMPL fallback (existing normal-mode planning).
+    // Plans to a Cartesian pose. The primary planner is Pilz PTP — a
+    // deterministic, smooth point-to-point joint motion that looks the same on
+    // every run (no random RRT swings, no self-collision because the path is
+    // still collision-checked). If PTP can't solve the pose we fall back to
+    // OMPL. An optional Cartesian straight-line path is tried first when asked.
     bool plan_to_pose(
         moveit::planning_interface::MoveGroupInterface & mg,
         const geometry_msgs::msg::Pose & target,
@@ -786,25 +789,41 @@ private:
         bool allow_cartesian)
     {
         if (allow_cartesian) {
-            std::vector<geometry_msgs::msg::Pose> wp = {target};
-            moveit_msgs::msg::RobotTrajectory cart;
-            const double frac = mg.computeCartesianPath(
-                wp, kCartesianEefStep, kCartesianJumpThreshold,
-                cart, /*avoid_collisions=*/true);
-            if (frac >= kCartesianMinFraction) {
-                plan_out.trajectory_ = cart;
-                if (auto cs = mg.getCurrentState(0.5)) {
-                    moveit::core::robotStateToRobotStateMsg(*cs, plan_out.start_state_);
-                }
+            // Pilz LIN — the tool tip travels a straight Cartesian line to the
+            // target. It honors the configured Cartesian limits and the
+            // velocity/acceleration scaling already set on the move group. If
+            // the straight-line path is infeasible (e.g. it would cross a wrist
+            // singularity or leave the workspace) LIN fails and we drop through
+            // to the PTP path below.
+            mg.setPlanningPipelineId("pilz_industrial_motion_planner");
+            mg.setPlannerId("LIN");
+            mg.clearPoseTargets();
+            mg.setPoseTarget(target);
+            if (mg.plan(plan_out) == moveit::core::MoveItErrorCode::SUCCESS) {
                 RCLCPP_INFO(this->get_logger(),
-                    "Cartesian path %.0f%% feasible — using straight-line trajectory.",
-                    frac * 100.0);
+                    "Planned with Pilz LIN (straight-line Cartesian).");
                 return true;
             }
-            RCLCPP_INFO(this->get_logger(),
-                "Cartesian only %.0f%% feasible — falling back to OMPL.",
-                frac * 100.0);
+            RCLCPP_WARN(this->get_logger(),
+                "Pilz LIN failed — falling back to PTP.");
         }
+
+        // Primary: Pilz PTP — deterministic, smooth, repeatable.
+        mg.setPlanningPipelineId("pilz_industrial_motion_planner");
+        mg.setPlannerId("PTP");
+        mg.clearPoseTargets();
+        mg.setPoseTarget(target);
+        if (mg.plan(plan_out) == moveit::core::MoveItErrorCode::SUCCESS) {
+            RCLCPP_INFO(this->get_logger(), "Planned with Pilz PTP.");
+            return true;
+        }
+
+        // Fallback: OMPL (sampling-based).
+        RCLCPP_WARN(this->get_logger(),
+            "Pilz PTP failed — falling back to OMPL.");
+        mg.setPlanningPipelineId("ompl");
+        mg.setPlannerId("");
+        mg.clearPoseTargets();
         mg.setPoseTarget(target);
         return mg.plan(plan_out) == moveit::core::MoveItErrorCode::SUCCESS;
     }
@@ -814,6 +833,18 @@ private:
         const std::vector<double> & target_joints,
         Plan & plan_out)
     {
+        // Pilz PTP for the safe-point hops too, so recovery moves are just as
+        // smooth and predictable as the main goal moves. OMPL fallback.
+        mg.setPlanningPipelineId("pilz_industrial_motion_planner");
+        mg.setPlannerId("PTP");
+        mg.setJointValueTarget(target_joints);
+        if (mg.plan(plan_out) == moveit::core::MoveItErrorCode::SUCCESS) {
+            return true;
+        }
+        RCLCPP_WARN(this->get_logger(),
+            "Pilz PTP (joint target) failed — falling back to OMPL.");
+        mg.setPlanningPipelineId("ompl");
+        mg.setPlannerId("");
         mg.setJointValueTarget(target_joints);
         return mg.plan(plan_out) == moveit::core::MoveItErrorCode::SUCCESS;
     }
@@ -987,6 +1018,9 @@ private:
         } cleanup{this};
 
         const geometry_msgs::msg::Pose target_pose = make_goal_pose(goal);
+        // Straight-line Cartesian (Pilz LIN) requested for this goal? Only the
+        // primary plan to the goal honors it; recovery paths stay PTP/OMPL.
+        const bool goal_cartesian = goal->cartesian;
 
         enum class S {
             PLAN_TO_GOAL,
@@ -1060,7 +1094,7 @@ private:
 
                 bool ok = false;
                 for (int a = 1; a <= kMaxReplanAttempts && rclcpp::ok(); ++a) {
-                    if (plan_to_pose(move_group, target_pose, goal_plan, false)) {
+                    if (plan_to_pose(move_group, target_pose, goal_plan, goal_cartesian)) {
                         ok = true;
                         break;
                     }
@@ -1286,8 +1320,19 @@ private:
                         mg.setStartState(*rs);
 
                         if (goal_preplan_cancel.load()) return std::nullopt;
-                        mg.setPoseTarget(target_pose);
                         Plan p;
+                        // Pilz PTP primary, OMPL fallback (mirrors plan_to_pose).
+                        mg.setPlanningPipelineId("pilz_industrial_motion_planner");
+                        mg.setPlannerId("PTP");
+                        mg.setPoseTarget(target_pose);
+                        if (mg.plan(p) == moveit::core::MoveItErrorCode::SUCCESS) {
+                            return p;
+                        }
+                        if (goal_preplan_cancel.load()) return std::nullopt;
+                        mg.setPlanningPipelineId("ompl");
+                        mg.setPlannerId("");
+                        mg.clearPoseTargets();
+                        mg.setPoseTarget(target_pose);
                         if (mg.plan(p) == moveit::core::MoveItErrorCode::SUCCESS) {
                             return p;
                         }

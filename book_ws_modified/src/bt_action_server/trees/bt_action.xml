@@ -10,17 +10,32 @@
                   qx="0.500" qy="-0.500" qz="0.500" qw="0.500"
                   timeout="15"/>
 
-      <!-- Waypoint 2: pick pose above the table. -->
+      <!-- Move to pick AND open gripper simultaneously.
+           cartesian="true" → straight-line (Pilz LIN) approach to the pick. -->
+      <Parallel success_count="2" failure_count="1">
+        <CallAction server_name="reach_location"
+                    x="0.188" y="0.352" z="0.920"
+                    qx="-0.702" qy="0.712" qz="-0.013" qw="0.015"
+                    cartesian="true"
+                    timeout="15"/>
+        <Gripper server_name="/robotiq_2f85_urcap_adapter/robotiq_2f85_urcap_adapter/gripper_command"
+                 position="0.08" max_speed="0.14" max_effort="50.0"/>
+      </Parallel>
+
+      <!-- Close gripper on the block. -->
+      <Gripper server_name="/robotiq_2f85_urcap_adapter/robotiq_2f85_urcap_adapter/gripper_command"
+               position="0.0" max_speed="0.1" max_effort="50.0"/>
+
+      <!-- Move straight to drop position. -->
       <CallAction server_name="reach_location"
-                  x="0.138" y="-0.215" z="1.038"
-                  qx="0.037" qy="0.996" qz="-0.078" qw="0.039"
+                  x="0.177" y="-0.549" z="1.103"
+                  qx="0.887" qy="0.450" qz="-0.086" qw="0.058"
                   timeout="15"/>
 
-      <!-- Waypoint 3: drop / second sort position. -->
-      <CallAction server_name="reach_location"
-                  x="-0.143" y="-0.444" z="1.004"
-                  qx="1.000" qy="0.000" qz="0.003" qw="0.004"
-                  timeout="15"/>
+      <!-- Release the block. Open to 60mm — well past the block, but clear of
+           the 85mm mechanical limit so the fingers don't stall against it. -->
+      <Gripper server_name="/robotiq_2f85_urcap_adapter/robotiq_2f85_urcap_adapter/gripper_command"
+               position="0.06" max_speed="0.14" max_effort="50.0"/>
     </Sequence>
   </BehaviorTree>
 
@@ -35,9 +50,16 @@
       <input_port name="qz"/>
       <input_port name="qw"/>
       <input_port name="timeout"/>
+      <input_port name="cartesian"/>
     </Action>
     <Action ID="WaitForServer" editable="true">
       <input_port name="server_name"/>
+    </Action>
+    <Action ID="Gripper" editable="true">
+      <input_port name="server_name"/>
+      <input_port name="position"/>
+      <input_port name="max_speed"/>
+      <input_port name="max_effort"/>
     </Action>
   </TreeNodesModel>
 </root>

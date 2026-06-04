@@ -63,11 +63,9 @@
     <disable_collisions link1="frame" link2="${prefix}base_link"         reason="Adjacent"/>
     <disable_collisions link1="frame" link2="${prefix}base_link_inertia" reason="Adjacent"/>
 
-    <!-- Ceiling plate sits between shoulder (z=1.72m) and base_link_inertia  -->
-    <!-- (z=1.88m). base, shoulder, and upper_arm are always above or        -->
-    <!-- through it by design (robot hangs from the plate region).           -->
-    <!-- forearm, wrist and tool links remain checked so the plate           -->
-    <!-- constrains extreme elbow-forward/down configurations.               -->
+    <!-- Ceiling plate at z=1.75m. base_link_inertia (z=1.88m), shoulder_link  -->
+    <!-- (z=1.72m), and upper_arm_link (shoulder geometry overlaps plate) are  -->
+    <!-- structurally adjacent — disable all three to avoid false positives.   -->
     <disable_collisions link1="ceiling_plate" link2="${prefix}base_link"         reason="Adjacent"/>
     <disable_collisions link1="ceiling_plate" link2="${prefix}base_link_inertia" reason="Adjacent"/>
     <disable_collisions link1="ceiling_plate" link2="${prefix}shoulder_link"     reason="Adjacent"/>

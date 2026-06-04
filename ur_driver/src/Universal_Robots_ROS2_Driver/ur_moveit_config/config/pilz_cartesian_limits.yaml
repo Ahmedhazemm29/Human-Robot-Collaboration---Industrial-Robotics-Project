@@ -1,0 +1,9 @@
+# Cartesian limits for the Pilz Industrial Motion Planner (LIN / CIRC commands).
+# These cap the straight-line Cartesian speed/acceleration of the tool. The
+# action server further scales these down via setMaxVelocityScalingFactor, so
+# the effective speed near the human is well below these ceilings.
+cartesian_limits:
+  max_trans_vel: 0.5     # m/s
+  max_trans_acc: 1.0     # m/s^2
+  max_trans_dec: -1.0    # m/s^2
+  max_rot_vel: 1.57      # rad/s

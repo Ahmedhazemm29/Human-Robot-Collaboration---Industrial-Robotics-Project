@@ -12,11 +12,13 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_action REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(std_srvs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 find_package(behaviortree_cpp REQUIRED)
 find_package(moveit_ros_planning_interface REQUIRED)
 find_package(moveit_msgs REQUIRED)
+find_package(robotiq_2f_urcap_adapter REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
   "action/ReachLocation.action"
@@ -44,7 +46,8 @@ target_link_libraries(reach_location_client "${cpp_typesupport_target}")
 # ── bt_action ─────────────────────────────────────────────────────────────────
 add_executable(bt_action src/bt_action.cpp)
 ament_target_dependencies(bt_action
-  rclcpp rclcpp_action std_msgs geometry_msgs behaviortree_cpp)
+  rclcpp rclcpp_action std_msgs std_srvs geometry_msgs behaviortree_cpp
+  robotiq_2f_urcap_adapter)
 target_link_libraries(bt_action "${cpp_typesupport_target}")
 
 install(TARGETS

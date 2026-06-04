@@ -7,6 +7,9 @@ float32 qy
 float32 qz
 float32 qw
 float32 timeout
+# When true, plan a straight-line Cartesian move (Pilz LIN) to this pose
+# instead of the default point-to-point (PTP) joint move. Defaults to false.
+bool cartesian false
 ---
 # Result
 bool success

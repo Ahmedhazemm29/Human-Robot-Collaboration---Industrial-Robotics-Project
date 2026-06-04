@@ -17,6 +17,7 @@
   <depend>behaviortree_cpp</depend>
   <depend>moveit_ros_planning_interface</depend>
   <depend>moveit_msgs</depend>
+  <depend>robotiq_2f_urcap_adapter</depend>
 
   <member_of_group>rosidl_interface_packages</member_of_group>
 
