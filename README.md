@@ -77,7 +77,7 @@ Kinect Camera (RGB + Depth)
               v
     BehaviorTree.CPP v4 (bt_action_server)
     - ReachLocation action server
-    - 3 waypoints: Home, Pick, Place
+    - Continuous loop: Home → (Pick + Open gripper in parallel) → Close gripper → Drop → Open gripper → repeat
     - Self-managed recovery (no allowReplanning)
               |
               v
@@ -93,10 +93,10 @@ Kinect Camera (RGB + Depth)
 - **Hand velocity prediction** — 6-sample rolling deque tracks hand motion; predicts where the hand will be when the robot reaches each upcoming waypoint
 - **Mid-motion brake and recovery** — robot decelerates smoothly using a linear velocity ramp, then scores and moves to the best safe-point candidate; only holds if the hand is actively blocking the replanned path
 - **Caution zone** — when the hand enters 0.25m from the end-effector, velocity drops to 8% before a full collision event
-- **Live collision avoidance** — MoveIt2 (OMPL + FCL) plans around the hand OBB; Cartesian straight-line paths attempted first, falling back to OMPL if blocked
+- **Live collision avoidance** — MoveIt2 (Pilz + OMPL + FCL) plans around the hand OBB; Pilz PTP for all joint moves, Pilz LIN for straight-line pick approach, OMPL as fallback
 - **Atomic scene updates** — old box and new box swap in one message, no ghost boxes
 - **Behavior Tree pipeline** — BehaviorTree.CPP v4 executes waypoints with a self-managed state machine (PLAN → EXECUTE → BRAKE → SAFE_POINT → RESUME)
-- **Single-command launcher** — `~/launch_sim.sh` opens all 5 terminals automatically in the correct boot order
+- **Single-command launchers** — `~/launch_sim.sh` (simulation, 5 terminals) and `~/launch_hw.sh` (hardware, 6 terminals including Robotiq gripper adapter)
 
 ---
 
@@ -104,10 +104,10 @@ Kinect Camera (RGB + Depth)
 
 | Decision | Choice | Reason |
 |---|---|---|
-| IK solver | Analytical UR kinematics | Deterministic, <1ms, ~100% success for reachable poses |
-| OMPL planner | RRTConnect (bidirectional) | Default MoveIt2 for UR; good for 6-DOF free-space paths |
-| Normal path | OMPL (joint-space) | Reliable for all poses including ceiling-mount configurations |
-| Cartesian path | `computeCartesianPath`, 5mm step | Used when a straight-line EEF path is feasible (≥90%) |
+| IK solver | LMA (Levenberg-Marquardt) | Fast, robust near UR5e singularities; no extra dependencies |
+| OMPL planner | RRTConnect (bidirectional) | Fallback only; Pilz PTP is tried first for all joint moves |
+| Normal path | Pilz PTP (joint-space) | Deterministic smooth joint move; OMPL kept as fallback |
+| Cartesian path | Pilz LIN | Straight-line EEF path (pick approach only); falls back to PTP if infeasible |
 | Collision checking (planning) | FCL via MoveIt2 planning scene | Full mesh-level collision for all OMPL samples |
 | Collision checking (execution) | Direct FK + OBB distance | In-process, microseconds per check, velocity-predicted hand position |
 
@@ -233,7 +233,8 @@ The simulation runs using the **fake UR5e hardware interface** (no Gazebo) with 
 │       ├── ur5e_grip_run/                       # Python joint commander
 │       └── ur5e_grip_run_cpp/                   # C++ joint commander with IK
 │
-├── launch_sim.sh                      # One-command launcher: opens all 5 terminals in boot order
+├── launch_sim.sh                      # One-command launcher: opens all 5 terminals in boot order (simulation)
+├── launch_hw.sh                       # One-command launcher: opens all 6 terminals in boot order (real UR5e + gripper)
 ├── launch_hrc.sh                      # HRC safety sub-terminals (Kinect, MediaPipe, collision pub, monitor)
 └── README.md
 ```
@@ -396,8 +397,27 @@ ros2 launch bt_action_server bt_action.launch.py
 
 ## Running the Full Pipeline — Real Robot
 
-Follow the same steps as simulation. The only change is in Terminal 1:
+### Option A — Single command (recommended)
 
+```bash
+~/launch_hw.sh
+```
+
+Opens 6 terminals automatically. Differences from simulation:
+
+| Terminal | Change vs simulation |
+|---|---|
+| T1 | `use_fake_hardware:=false` — connects to real UR5e at 192.168.1.102 |
+| T4 | `use_sim_time:=false` — uses wall clock, not `/clock` topic |
+| T6 | **New** — Robotiq 2F-85 gripper adapter (`robotiq_2f85_urcap_adapter_launch.py`) |
+
+> ⚠️ Ensure the robot is at home position and the E-stop is cleared before running.
+
+### Option B — Manual
+
+Follow the same terminal steps as simulation with these changes:
+
+**Terminal 1** — set `use_fake_hardware:=false`:
 ```bash
 ros2 launch ur_robot_driver ur_control.launch.py \
   ur_type:=ur5e \
@@ -406,7 +426,22 @@ ros2 launch ur_robot_driver ur_control.launch.py \
   use_fake_hardware:=false
 ```
 
-> ⚠️ Ensure the robot is at home position and the workspace is clear before launching Terminals 4 and 5.
+**Terminal 4** — set `use_sim_time:=false`:
+```bash
+source ~/.ros_env.sh
+ros2 run bt_action_server reach_location_server --ros-args \
+  -p use_sim_time:=false \
+  --params-file /home/hazem/ur_driver/src/Universal_Robots_ROS2_Driver/ur_moveit_config/config/kinematics.yaml
+```
+
+**Terminal 6** — Robotiq gripper adapter (new, required for hardware):
+```bash
+source ~/.ros_env.sh
+ros2 launch robotiq_2f_urcap_adapter robotiq_2f85_urcap_adapter_launch.py \
+  robot_ip:=192.168.1.102
+```
+
+> ⚠️ Launch T6 before T5 (BT executor). The BT `Gripper` node will wait up to 5 s for the action server, but it must be running before the first gripper command arrives.
 
 ---
 
@@ -444,9 +479,9 @@ WEBCAM_MODE = False  # Deployment  — uses Kinect depth stream + TF transform
 |---|---|---|
 | Hand detection | MediaPipe HandLandmarkTrackingCpu (C++) | 30 FPS, publishes bounding box |
 | Robot middleware | ROS2 Humble | DDS-based pub/sub, actions, services |
-| Motion planning (paths) | MoveIt2 + OMPL (RRTConnect) | Free-space joint-space planning |
-| Motion planning (straight-line) | MoveIt2 Cartesian path | 5mm EEF step, ≥90% feasibility required |
-| IK solver | Analytical UR kinematics | Closed-form, <1ms, deterministic |
+| Motion planning (paths) | MoveIt2 + Pilz PTP / OMPL fallback | Deterministic PTP primary; RRTConnect fallback |
+| Motion planning (straight-line) | Pilz LIN | Straight-line EEF motion; pick approach only; falls back to PTP |
+| IK solver | LMA kinematics plugin | Levenberg-Marquardt, fast convergence, robust near singularities |
 | Collision checking (planning) | FCL via MoveIt2 | Full mesh-level, every OMPL sample |
 | Collision checking (execution) | Direct FK + OBB distance | In-process, no RPC, velocity-predicted |
 | Behavior Trees | BehaviorTree.CPP v4 | XML-defined tree, ReachLocation action |
