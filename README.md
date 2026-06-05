@@ -8,6 +8,34 @@ A vision-driven human-robot collaboration system where a UR5e robot detects a hu
 
 ---
 
+> 📺 **[Watch the full playlist on YouTube](https://youtube.com/playlist?list=PLH1RhmgV2rAvBs76L9SBMAl2i3MXFQklF)**
+
+---
+
+## Real-Life Video
+
+### Full HRC Pipeline — Physical UR5e | ROS2 Humble
+
+[![Real-Life Video](https://img.youtube.com/vi/UL8X8YRr8Ec/0.jpg)](https://youtu.be/UL8X8YRr8Ec)
+
+*The complete HRC pipeline running on the physical UR5e robot. Real-time hand detection via Kinect and MediaPipe, live collision box published to MoveIt2, and autonomous motion replanning — all validated on hardware.*
+
+**Stack:** ROS2 Humble · MoveIt2 · UR5e · Kinect v1 · MediaPipe · Python/C++
+
+---
+
+## Simulation Video
+
+### Real-Time HRC Simulation: MoveIt2 Motion Planning on UR5e with Kinect Vision | ROS2 Humble
+
+[![Simulation Video](https://img.youtube.com/vi/q4x9Y4t7tAM/0.jpg)](https://youtu.be/q4x9Y4t7tAM)
+
+*Screen recording of the full HRC system running on ROS2 Humble. The right panel shows the live RViz visualization of the UR5e workcell including the MoveIt2 planning scene and robot state. The left panel shows the Kinect v1 RGB stream — the raw visual input the robot uses for human detection via MediaPipe. The system performs real-time motion replanning in response to human proximity, with all joint states and collision objects rendered live in RViz.*
+
+**Stack:** ROS2 Humble · MoveIt2 · UR5e · Kinect v1 · MediaPipe · Python/C++
+
+---
+
 ## Demos
 
 ### Demo 1 — Full HRC Pipeline: BT Waypoint Execution with Real-Time Hand Avoidance (Simulation)
