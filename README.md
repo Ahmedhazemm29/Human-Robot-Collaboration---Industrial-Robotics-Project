@@ -2,7 +2,7 @@
 
 ## Vision-Based Safe Workspace Sharing using UR5e, ROS2, and Computer Vision
 
-🚧 **Project Status: Full Pipeline Working in Simulation | Physical UR5e End-to-End Testing In Progress**
+✅ **Project Complete — Presented at GIU Engineering Exhibition 2026**
 
 A vision-driven human-robot collaboration system where a UR5e robot detects a human worker's hand in real time, dynamically defines it as a forbidden zone in the MoveIt2 planning scene, and replans its trajectory to avoid it — all without physical safety barriers. The system also includes a Behavior Tree-based pipeline for autonomous task execution with live human-aware collision avoidance.
 
@@ -171,7 +171,7 @@ The simulation runs using the **fake UR5e hardware interface** (no Gazebo) with 
 - ✅ BT action server plans and executes across 3 waypoints (Home, Pick, Place)
 - ✅ Robot returns to home position autonomously after each waypoint
 - ✅ Full Kinect depth integration with TF transform to robot base frame
-- 🔄 Physical UR5e end-to-end testing — in progress
+- ✅ Full end-to-end validation on physical UR5e hardware
 
 ---
 
@@ -189,7 +189,7 @@ The simulation runs using the **fake UR5e hardware interface** (no Gazebo) with 
 | Predictive FK collision checker with velocity prediction | ✅ Complete |
 | BT 3-waypoint pipeline (Home / Pick / Place) | ✅ Complete |
 | Single-command pipeline launcher (`launch_sim.sh`) | ✅ Complete |
-| Full end-to-end test on physical UR5e | 🔄 In Progress |
+| Full end-to-end test on physical UR5e | ✅ Complete |
 
 ---
 
@@ -492,12 +492,6 @@ WEBCAM_MODE = False  # Deployment  — uses Kinect depth stream + TF transform
 
 ---
 
-## Future Work
-
-- Full end-to-end deployment on physical UR5e hardware
-
----
-
 ## Team
 
 - Ahmed Hazem
@@ -509,4 +503,11 @@ WEBCAM_MODE = False  # Deployment  — uses Kinect depth stream + TF transform
 - Nour Ramy
 - Nour Kamel
 
-**German International University — Industrial Robotics Course**
+**Supervised by:**
+- Dr. Khaled Tolba
+- Eng. Moaz Fouda
+- Eng. Ahmed El-Hemaly
+
+**German International University — Industrial Robots Course**
+
+*Presented at GIU Engineering Exhibition 2026*
