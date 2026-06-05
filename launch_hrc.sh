@@ -20,7 +20,7 @@ fi
 # Sub-terminal 1 — Kinect driver
 terminator -e "bash -c '
     source /opt/ros/humble/setup.bash &&
-    source ~/ros2_ws/install/setup.bash &&
+    source ~/hrc_perception_ws/install/setup.bash &&
     ros2 run kinect_ros2 kinect_ros2_node;
     exec bash'" &
 sleep 3
@@ -28,7 +28,7 @@ sleep 3
 # Sub-terminal 2 — MediaPipe hand tracking
 terminator -e "bash -c '
     source /opt/ros/humble/setup.bash &&
-    source ~/ros2_ws/install/setup.bash &&
+    source ~/hrc_perception_ws/install/setup.bash &&
     cd ~/mediapipe &&
     ./bazel-bin/mediapipe/examples/hand_tracking_custom/hand_tracking;
     exec bash'" &
@@ -37,7 +37,7 @@ sleep 2
 # Sub-terminal 3 — Collision object publisher (hand OBB → /planning_scene)
 terminator -e "bash -c '
     source /opt/ros/humble/setup.bash &&
-    source ~/ros2_ws/install/setup.bash &&
+    source ~/hrc_perception_ws/install/setup.bash &&
     ros2 run human_robot_collab hand_to_collision;
     exec bash'" &
 sleep 2

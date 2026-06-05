@@ -197,7 +197,7 @@ The simulation runs using the **fake UR5e hardware interface** (no Gazebo) with 
 
 ```
 ~/hrc_repo/
-├── ros2_ws/
+├── hrc_perception_ws/
 │   └── src/
 │       ├── human_robot_collab/        # hand_to_collision.py — publishes hand box to /planning_scene
 │       │                              # validate_corners.py, waypoint_manager.py
@@ -205,7 +205,7 @@ The simulation runs using the **fake UR5e hardware interface** (no Gazebo) with 
 │       ├── actions_py/                # Python action server/client examples
 │       └── cmake_pkg/                 # CMake package template
 │
-├── book_ws_modified/
+├── bt_moveit_ws/
 │   └── src/
 │       ├── bt_action_server/          # BehaviorTree.CPP v4 pipeline
 │       │   ├── src/
@@ -224,7 +224,7 @@ The simulation runs using the **fake UR5e hardware interface** (no Gazebo) with 
 │           ├── src/sort_blocks.cpp
 │           └── launch/sort_blocks.launch.py
 │
-├── ur_driver/
+├── ur5e_driver_ws/
 │   └── src/
 │       ├── Universal_Robots_ROS2_Driver/        # Modified UR driver
 │       │   └── ur_moveit_config/
@@ -285,22 +285,22 @@ builtrack
 
 **4. Build the UR driver workspace (includes modified UR packages):**
 ```bash
-cd ~/ur_driver
+cd ~/ur5e_driver_ws
 colcon build --allow-overriding ur_moveit_config ur_controllers ur_description
 source install/setup.bash
 ```
 
 **5. Build the ROS2 workspace:**
 ```bash
-cd ~/ros2_ws
+cd ~/hrc_perception_ws
 colcon build
 source install/setup.bash
 ```
 
 **6. Build the BT workspace:**
 ```bash
-cd ~/book_ws_modified
-source ~/ur_driver/install/setup.bash
+cd ~/bt_moveit_ws
+source ~/ur5e_driver_ws/install/setup.bash
 colcon build
 source install/setup.bash
 ```
@@ -336,21 +336,21 @@ Open 5 terminals in order. Wait for each step to fully initialize before moving 
 #### Terminal 1 — Fake UR5e Driver
 
 ```bash
-cd ~/ur_driver
+cd ~/ur5e_driver_ws
 colcon build --allow-overriding ur_moveit_config ur_controllers ur_description
 source /opt/ros/humble/setup.bash
 source install/setup.bash
 ros2 launch ur_robot_driver ur_control.launch.py \
   ur_type:=ur5e \
   robot_ip:=192.168.1.102 \
-  kinematics_params_file:="/home/hazem/ur_driver/src/Universal_Robots_ROS2_Description/config/ur5e/default_kinematics.yaml" \
+  kinematics_params_file:="/home/hazem/ur5e_driver_ws/src/Universal_Robots_ROS2_Description/config/ur5e/default_kinematics.yaml" \
   use_fake_hardware:=true
 ```
 
 #### Terminal 2 — MoveIt2 + RViz
 
 ```bash
-cd ~/ur_driver
+cd ~/ur5e_driver_ws
 colcon build --allow-overriding ur_moveit_config ur_controllers ur_description
 source /opt/ros/humble/setup.bash
 source install/setup.bash
@@ -383,7 +383,7 @@ This opens 4 sub-terminals:
 source ~/.ros_env.sh
 ros2 run bt_action_server reach_location_server --ros-args \
   -p use_sim_time:=true \
-  --params-file /home/hazem/ur_driver/src/Universal_Robots_ROS2_Driver/ur_moveit_config/config/kinematics.yaml
+  --params-file /home/hazem/ur5e_driver_ws/src/Universal_Robots_ROS2_Driver/ur_moveit_config/config/kinematics.yaml
 ```
 
 #### Terminal 5 — BT Executor
@@ -422,7 +422,7 @@ Follow the same terminal steps as simulation with these changes:
 ros2 launch ur_robot_driver ur_control.launch.py \
   ur_type:=ur5e \
   robot_ip:=192.168.1.102 \
-  kinematics_params_file:="/home/hazem/ur_driver/src/Universal_Robots_ROS2_Description/config/ur5e/default_kinematics.yaml" \
+  kinematics_params_file:="/home/hazem/ur5e_driver_ws/src/Universal_Robots_ROS2_Description/config/ur5e/default_kinematics.yaml" \
   use_fake_hardware:=false
 ```
 
@@ -431,7 +431,7 @@ ros2 launch ur_robot_driver ur_control.launch.py \
 source ~/.ros_env.sh
 ros2 run bt_action_server reach_location_server --ros-args \
   -p use_sim_time:=false \
-  --params-file /home/hazem/ur_driver/src/Universal_Robots_ROS2_Driver/ur_moveit_config/config/kinematics.yaml
+  --params-file /home/hazem/ur5e_driver_ws/src/Universal_Robots_ROS2_Driver/ur_moveit_config/config/kinematics.yaml
 ```
 
 **Terminal 6** — Robotiq gripper adapter (new, required for hardware):
@@ -447,7 +447,7 @@ ros2 launch robotiq_2f_urcap_adapter robotiq_2f85_urcap_adapter_launch.py \
 
 ## Mode Switching
 
-At the top of `ros2_ws/src/human_robot_collab/human_robot_collab/hand_to_collision.py`:
+At the top of `hrc_perception_ws/src/human_robot_collab/human_robot_collab/hand_to_collision.py`:
 
 ```python
 WEBCAM_MODE = True   # Development — uses webcam + fixed depth

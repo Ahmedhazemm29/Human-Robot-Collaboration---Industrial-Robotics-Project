@@ -22,12 +22,12 @@ if [[ -n "${SNAP_NAME}" ]]; then
         export XDG_DATA_DIRS="${XDG_DATA_DIRS_VSCODE_SNAP_ORIG}"
 fi
 
-KINEMATICS_FILE="/home/hazem/ur_driver/src/Universal_Robots_ROS2_Description/config/ur5e/default_kinematics.yaml"
-MOVEIT_KINEMATICS="/home/hazem/ur_driver/src/Universal_Robots_ROS2_Driver/ur_moveit_config/config/kinematics.yaml"
+KINEMATICS_FILE="/home/hazem/ur5e_driver_ws/src/Universal_Robots_ROS2_Description/config/ur5e/default_kinematics.yaml"
+MOVEIT_KINEMATICS="/home/hazem/ur5e_driver_ws/src/Universal_Robots_ROS2_Driver/ur_moveit_config/config/kinematics.yaml"
 
 # ── T1: Fake UR5e driver ─────────────────────────────────────────────────────
 terminator -e "bash -c '
-    cd ~/ur_driver &&
+    cd ~/ur5e_driver_ws &&
     colcon build --allow-overriding ur_moveit_config ur_controllers ur_description &&
     source /opt/ros/humble/setup.bash &&
     source install/setup.bash &&
@@ -42,7 +42,7 @@ sleep 10
 
 # ── T2: MoveIt + RViz ────────────────────────────────────────────────────────
 terminator -e "bash -c '
-    cd ~/ur_driver &&
+    cd ~/ur5e_driver_ws &&
     colcon build --allow-overriding ur_moveit_config ur_controllers ur_description &&
     source /opt/ros/humble/setup.bash &&
     source install/setup.bash &&
@@ -56,7 +56,7 @@ sleep 10
 
 # ── T3: HRC safety (Kinect + MediaPipe + collision pub + monitor) ─────────────
 terminator -e "bash -c '
-    cd ~/ros2_ws &&
+    cd ~/hrc_perception_ws &&
     source install/setup.bash &&
     ~/launch_hrc.sh;
     exec bash'" &
