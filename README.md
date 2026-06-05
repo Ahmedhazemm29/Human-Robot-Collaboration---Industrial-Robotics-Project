@@ -1,4 +1,4 @@
-# Human-Robot Collaboration — Industrial Robotics Project
+# Human-Robot Collaboration — Industrial Robots Project
 
 ## Vision-Based Safe Workspace Sharing using UR5e, ROS2, and Computer Vision
 
