@@ -12,6 +12,14 @@ A vision-driven human-robot collaboration system where a UR5e robot detects a hu
 
 ---
 
+## What This System Does
+
+In traditional industrial environments, robots are separated from humans using physical safety cages. This project removes that barrier. A Kinect camera monitors the shared workspace, detects the human worker's hand using MediaPipe, and publishes a padded 3D collision box around it to MoveIt2 at 20Hz. The UR5e robot treats this box as a live obstacle and automatically replans around it in real time.
+
+The result is a robot that can share a workspace with a human worker safely — stopping mid-motion the moment a hand enters its planned path, shifting to a safe position, and autonomously resuming its task once the workspace is clear. A second pipeline built on BehaviorTree.CPP v4 handles autonomous waypoint execution (Home → Pick → Place), with dynamic replanning triggered by the live hand collision box.
+
+---
+
 ## Real-Life Video
 
 ### Full HRC Pipeline — Physical UR5e | ROS2 Humble
@@ -62,11 +70,18 @@ A vision-driven human-robot collaboration system where a UR5e robot detects a hu
 
 ---
 
-## What This System Does
+## Proven Results
 
-In traditional industrial environments, robots are separated from humans using physical safety cages. This project removes that barrier. A Kinect camera monitors the shared workspace, detects the human worker's hand using MediaPipe, and publishes a padded 3D collision box around it to MoveIt2 at 10Hz. The UR5e robot treats this box as a live obstacle and automatically replans around it in real time.
-
-The result is a robot that can share a workspace with a human worker safely — stopping mid-motion the moment a hand enters its planned path, shifting to a safe position, and autonomously resuming its task once the workspace is clear. A second pipeline built on BehaviorTree.CPP v4 handles autonomous waypoint execution (Home → Pick → Place), with dynamic replanning triggered by the live hand collision box.
+- ✅ Hand detected in real time via Kinect + MediaPipe at 30 FPS
+- ✅ Collision box published to MoveIt2 at 20Hz — appears as green box in RViz
+- ✅ Robot **stops mid-motion** and shifts to a safe position when hand blocks the path
+- ✅ Robot **autonomously re-navigates** to the original target the moment the hand is removed
+- ✅ Predictive FK checker detects approach before contact using velocity extrapolation
+- ✅ Consistent on/off behaviour confirmed across multiple test runs
+- ✅ BT action server plans and executes across 3 waypoints (Home, Pick, Place)
+- ✅ Robot returns to home position autonomously after each waypoint
+- ✅ Full Kinect depth integration with TF transform to robot base frame
+- ✅ Full end-to-end validation on physical UR5e hardware
 
 ---
 
@@ -83,7 +98,7 @@ Kinect Camera (RGB + Depth)
         /hand_bbox topic
               |
               v
-   hand_to_collision.py (ROS2, 10Hz)
+   hand_to_collision.py (ROS2, 20Hz)
    - Builds padded 3D bounding box
    - Deprojects to 3D using Kinect intrinsics
    - TF transform to robot base_link frame
@@ -185,21 +200,6 @@ The simulation runs using the **fake UR5e hardware interface** (no Gazebo) with 
 - Full MoveIt2 integration with `joint_state_broadcaster` and `joint_trajectory_controller`
 - RViz with live PlanningScene display showing the green hand collision box and full TF frame tree
 - Trajectory ghost display (one-shot, no loop replay)
-
----
-
-## Proven Results
-
-- ✅ Hand detected in real time via Kinect + MediaPipe at 30 FPS
-- ✅ Collision box published to MoveIt2 at 10Hz — appears as green box in RViz
-- ✅ Robot **stops mid-motion** and shifts to a safe position when hand blocks the path
-- ✅ Robot **autonomously re-navigates** to the original target the moment the hand is removed
-- ✅ Predictive FK checker detects approach before contact using velocity extrapolation
-- ✅ Consistent on/off behaviour confirmed across multiple test runs
-- ✅ BT action server plans and executes across 3 waypoints (Home, Pick, Place)
-- ✅ Robot returns to home position autonomously after each waypoint
-- ✅ Full Kinect depth integration with TF transform to robot base frame
-- ✅ Full end-to-end validation on physical UR5e hardware
 
 ---
 
