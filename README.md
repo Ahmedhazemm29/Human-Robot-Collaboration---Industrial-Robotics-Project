@@ -218,6 +218,29 @@ The simulation runs using the **fake UR5e hardware interface** (no Gazebo) with 
 | BT 3-waypoint pipeline (Home / Pick / Place) | ✅ Complete |
 | Single-command pipeline launcher (`launch_sim.sh`) | ✅ Complete |
 | Full end-to-end test on physical UR5e | ✅ Complete |
+| Full-body collision mode (arms + head model) | 🧪 Under testing |
+| Gesture pause/resume (palm = pause, fist = resume) | 🧪 Under testing |
+
+### Future Features (in progress)
+
+These have been implemented and pass offline unit tests, but are still
+being validated end-to-end in simulation before being considered complete:
+
+- **Full-body collision mode** — MediaPipe Pose → cylinders for arms +
+  spheres for hands/head as live MoveIt2 obstacles, instead of a single
+  hand box (`tracking_mode:=body`). Remaining: RViz/MoveIt2 replanning
+  validation in sim and on hardware.
+- **Gesture pause/resume** — open palm pauses the BT waypoint task, fist
+  resumes it, via `GesturePauseGate` nodes in the behavior tree.
+  Remaining: `bt_action_server` build verification and end-to-end sim test.
+
+Planned next:
+
+- Speed and Separation Monitoring (ISO/TS 15066 protective distance
+  instead of the fixed caution zone)
+- Reactive avoidance with MoveIt Servo (deform the trajectory around the
+  human instead of stop-and-replan)
+- Metrics logging (reaction latency, minimum separation distance)
 
 ---
 
@@ -486,6 +509,11 @@ WEBCAM_MODE = False  # Deployment  — uses Kinect depth stream + TF transform
 
 ### Tracking mode — hand vs. full body
 
+> ⚠️ **Status: under testing.** Full-body mode is a new addition — its
+> logic passes the offline unit-test suite and recorded-footage detection
+> tests, but RViz/MoveIt2 end-to-end validation in simulation and on
+> hardware is still in progress. Hand mode is the validated pipeline.
+
 The collision publisher supports two tracking modes, selected with a ROS
 parameter at launch (no code edit needed):
 
@@ -531,6 +559,12 @@ on first run.
 ---
 
 ## Gesture Control — Pause / Resume
+
+> ⚠️ **Status: under testing.** Gesture control is a new addition — the
+> classification and pause/resume state machine pass the offline unit
+> tests, but the BT integration has not yet been compiled and validated
+> end-to-end in simulation. The pipeline runs unchanged when the gesture
+> node is offline.
 
 The operator can pause and resume the waypoint task with bare-hand gestures:
 
