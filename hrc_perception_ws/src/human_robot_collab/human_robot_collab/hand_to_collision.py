@@ -48,6 +48,48 @@ WEBCAM_MODE   = False
 FIXED_DEPTH_M = 0.9
 
 # ─────────────────────────────────────────────────────────────────────────────
+#  TRACKING MODE (ROS parameter, not a constant — set at launch)
+#    ros2 run human_robot_collab hand_to_collision                       → hand
+#    ros2 run human_robot_collab hand_to_collision --ros-args -p tracking_mode:=body
+#
+#  "hand" → original pipeline: /hand_bbox (C++ MediaPipe node) → single box
+#  "body" → /body_landmarks (body_tracker.py, MediaPipe Pose) → multi-part
+#           model: cylinder per arm segment + sphere per hand + head sphere
+# ─────────────────────────────────────────────────────────────────────────────
+
+# MediaPipe Pose landmark indices used in body mode
+MP_NOSE       = 0
+MP_L_SHOULDER = 11
+MP_R_SHOULDER = 12
+MP_L_ELBOW    = 13
+MP_R_ELBOW    = 14
+MP_L_WRIST    = 15
+MP_R_WRIST    = 16
+
+VIS_THRESH    = 0.5    # min MediaPipe visibility to trust a landmark
+UPPER_ARM_R   = 0.07   # m — cylinder radius shoulder→elbow
+FOREARM_R     = 0.06   # m — cylinder radius elbow→wrist
+HAND_R        = 0.10   # m — sphere radius at wrist (covers the hand)
+HEAD_R        = 0.14   # m — sphere radius at nose
+MIN_SEG_LEN   = 0.02   # m — skip degenerate segments shorter than this
+LM_PATCH_PX   = 8      # px — half-size of depth patch sampled per landmark
+
+# (segment_id, landmark_a, landmark_b, radius)
+BODY_SEGMENTS = [
+    ("body_l_upper_arm", MP_L_SHOULDER, MP_L_ELBOW, UPPER_ARM_R),
+    ("body_l_forearm",   MP_L_ELBOW,    MP_L_WRIST, FOREARM_R),
+    ("body_r_upper_arm", MP_R_SHOULDER, MP_R_ELBOW, UPPER_ARM_R),
+    ("body_r_forearm",   MP_R_ELBOW,    MP_R_WRIST, FOREARM_R),
+]
+# (sphere_id, landmark, radius)
+BODY_SPHERES = [
+    ("body_l_hand", MP_L_WRIST, HAND_R),
+    ("body_r_hand", MP_R_WRIST, HAND_R),
+    ("body_head",   MP_NOSE,    HEAD_R),
+]
+ALL_BODY_IDS = [s[0] for s in BODY_SEGMENTS] + [s[0] for s in BODY_SPHERES]
+
+# ─────────────────────────────────────────────────────────────────────────────
 #  KINECT v1 FIXED INTRINSICS
 #  Standard Kinect v1 factory values — no CameraInfo topic needed
 # ─────────────────────────────────────────────────────────────────────────────
@@ -92,12 +134,26 @@ class HandToCollision(Node):
     def __init__(self):
         super().__init__("hand_to_collision")
 
+        self.declare_parameter("tracking_mode", "hand")
+        self.mode = self.get_parameter("tracking_mode") \
+                        .get_parameter_value().string_value.strip().lower()
+        if self.mode not in ("hand", "body"):
+            self.get_logger().warn(
+                f"Unknown tracking_mode '{self.mode}' — falling back to 'hand'.")
+            self.mode = "hand"
+
         self.bridge             = CvBridge()
         self.latest_landmarks   = None
         self.last_landmark_time = None
         self.latest_depth       = None
 
-        self._z_smooth   = None   # EMA-smoothed depth value
+        self._z_smooth   = None   # EMA-smoothed depth value (hand mode)
+        self._lm_z_smooth = {}    # per-landmark EMA depth (body mode)
+        # IDs currently present in the planning scene. Seeded with every ID we
+        # could ever publish so the first update atomically clears leftovers
+        # from a previous run (e.g. hand box lingering after a mode switch).
+        self._active_ids = set([COLLISION_ID] + ALL_BODY_IDS)
+
         self.tf_buffer   = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
 
@@ -107,12 +163,20 @@ class HandToCollision(Node):
             depth=10
         )
 
-        self.create_subscription(
-            PolygonStamped,
-            "/hand_bbox",
-            self._bbox_cb,
-            reliable_qos
-        )
+        if self.mode == "body":
+            self.create_subscription(
+                PoseArray,
+                "/body_landmarks",
+                self._landmarks_cb,
+                reliable_qos
+            )
+        else:
+            self.create_subscription(
+                PolygonStamped,
+                "/hand_bbox",
+                self._bbox_cb,
+                reliable_qos
+            )
 
         if not WEBCAM_MODE:
             # ── Subscribe to Kinect depth topic (published by kinect_cpp) ────
@@ -132,7 +196,8 @@ class HandToCollision(Node):
 
         mode_str = "WEBCAM (fixed depth, no TF)" if WEBCAM_MODE else "KINECT (depth stream + TF)"
         self.get_logger().info(
-            f"HandToCollision node ready — mode: {mode_str} — waiting for landmarks.")
+            f"HandToCollision node ready — camera: {mode_str} — "
+            f"tracking: {self.mode.upper()} — waiting for landmarks.")
 
     # ─────────────────────────────────────────────────────────────────────────
     #  SUBSCRIBERS
@@ -176,7 +241,7 @@ class HandToCollision(Node):
             if age > STALE_TIMEOUT:
                 self._publish_remove_only()
                 self.get_logger().info(
-                    "Hand lost — collision box removed.",
+                    "Target lost — collision objects removed.",
                     throttle_duration_sec=1.0)
                 return
 
@@ -190,15 +255,26 @@ class HandToCollision(Node):
                     throttle_duration_sec=2.0)
                 return
 
+        # ── BODY MODE ─────────────────────────────────────────────────────
+        if self.mode == "body":
+            cos = self._build_body_objects(self.latest_landmarks)
+            if not cos:
+                self._publish_remove_only()
+                return
+            self._publish_objects(cos)
+            self.get_logger().info(
+                f"Body model updated: {len(cos)} parts "
+                f"[{', '.join(c.id.replace('body_', '') for c in cos)}]",
+                throttle_duration_sec=0.5)
+            return
+
+        # ── HAND MODE (original pipeline) ─────────────────────────────────
         co = self._build_collision_object(self.latest_landmarks)
         if co is None:
             self._publish_remove_only()
             return
 
-        scene_msg                         = PlanningScene()
-        scene_msg.is_diff                 = True
-        scene_msg.world.collision_objects = [co]
-        self.scene_pub.publish(scene_msg)
+        self._publish_objects([co])
 
         self.get_logger().info(
             f"Collision box updated: centre=("
@@ -368,17 +444,216 @@ class HandToCollision(Node):
         return co
 
     # ─────────────────────────────────────────────────────────────────────────
+    #  BODY-MODE BUILDER
+    #  Input: PoseArray of 33 MediaPipe Pose landmarks from body_tracker.py
+    #         position.x = u (px, 0..IMG_W), position.y = v (px, 0..IMG_H),
+    #         position.z = landmark visibility (0..1)
+    #  Output: list of CollisionObjects — one cylinder per arm segment,
+    #          one sphere per hand, one sphere for the head.
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def _build_body_objects(self, msg: PoseArray):
+        if len(msg.poses) < 33:
+            self.get_logger().warn(
+                f"Body landmarks message has {len(msg.poses)} poses "
+                f"(expected 33) — skipping frame.",
+                throttle_duration_sec=2.0)
+            return []
+
+        # Resolve each needed landmark to a world-frame point (or None).
+        world_pt = {}
+        for idx in {i for _, a, b, _ in BODY_SEGMENTS for i in (a, b)} | \
+                   {i for _, i, _ in BODY_SPHERES}:
+            p   = msg.poses[idx]
+            vis = p.position.z
+            if vis < VIS_THRESH:
+                world_pt[idx] = None
+                continue
+            u = int(np.clip(p.position.x, 0, IMG_W - 1))
+            v = int(np.clip(p.position.y, 0, IMG_H - 1))
+            if WEBCAM_MODE:
+                world_pt[idx] = self._pixel_to_world_webcam(u, v)
+            else:
+                world_pt[idx] = self._pixel_to_world_kinect(u, v, idx)
+
+        cos = []
+        for seg_id, ia, ib, radius in BODY_SEGMENTS:
+            pa, pb = world_pt.get(ia), world_pt.get(ib)
+            if pa is None or pb is None:
+                continue
+            co = self._make_cylinder(seg_id, pa, pb, radius)
+            if co is not None:
+                cos.append(co)
+
+        for sph_id, idx, radius in BODY_SPHERES:
+            pc = world_pt.get(idx)
+            if pc is None:
+                continue
+            cos.append(self._make_sphere(sph_id, pc, radius))
+
+        return cos
+
+    # ─────────────────────────────────────────────────────────────────────────
+    #  PIXEL → WORLD HELPERS (body mode)
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def _pixel_to_world_webcam(self, u, v):
+        """Same crude overhead mapping as the webcam hand box: u → world X,
+        v → world Y, and v also drives height above the table surface."""
+        Z_RANGE = 0.60
+        x = TABLE_X_MIN + (u / IMG_W) * (TABLE_X_MAX - TABLE_X_MIN)
+        y = TABLE_Y_MIN + (v / IMG_H) * (TABLE_Y_MAX - TABLE_Y_MIN)
+        z = TABLE_Z_SURFACE + (1.0 - v / IMG_H) * Z_RANGE
+        x = float(np.clip(x, TABLE_X_MIN, TABLE_X_MAX))
+        y = float(np.clip(y, TABLE_Y_MIN, TABLE_Y_MAX))
+        z = float(max(z, TABLE_Z_SURFACE))
+        return np.array([x, y, z])
+
+    def _pixel_to_world_kinect(self, u, v, lm_idx):
+        """Depth-sample a small patch at the landmark pixel, deproject with
+        the Kinect intrinsics, TF-transform to world. Returns None if no
+        valid depth or TF is available for this landmark."""
+        patch = self.latest_depth[
+            max(0, v - LM_PATCH_PX):min(IMG_H, v + LM_PATCH_PX + 1),
+            max(0, u - LM_PATCH_PX):min(IMG_W, u + LM_PATCH_PX + 1)
+        ]
+        valid = patch[patch > 0.1]
+        if valid.size == 0:
+            return None
+        z_raw = float(np.percentile(valid, 10))
+
+        prev = self._lm_z_smooth.get(lm_idx)
+        z = z_raw if prev is None else \
+            DEPTH_EMA_ALPHA * z_raw + (1.0 - DEPTH_EMA_ALPHA) * prev
+        self._lm_z_smooth[lm_idx] = z
+
+        cam = np.array([(u - KINECT_CX) * z / KINECT_FX,
+                        (v - KINECT_CY) * z / KINECT_FY,
+                        z], dtype=float)
+
+        pt                 = PointStamped()
+        pt.header.frame_id = CAMERA_FRAME
+        pt.header.stamp    = rclpy.time.Time().to_msg()
+        pt.point.x, pt.point.y, pt.point.z = map(float, cam)
+        try:
+            w = self.tf_buffer.transform(
+                pt, "world", timeout=rclpy.duration.Duration(seconds=0.1))
+        except Exception as e:
+            self.get_logger().warn(
+                f"TF transform failed for landmark {lm_idx}: {e}",
+                throttle_duration_sec=2.0)
+            return None
+        return np.array([w.point.x, w.point.y, w.point.z + WORLD_Z_OFFSET_M])
+
+    # ─────────────────────────────────────────────────────────────────────────
+    #  PRIMITIVE BUILDERS (body mode)
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def _make_sphere(self, obj_id, centre, radius):
+        co                 = CollisionObject()
+        co.header          = Header()
+        co.header.frame_id = "world"
+        co.header.stamp    = self.get_clock().now().to_msg()
+        co.id              = obj_id
+        co.operation       = CollisionObject.ADD
+
+        prim            = SolidPrimitive()
+        prim.type       = SolidPrimitive.SPHERE
+        prim.dimensions = [float(radius)]
+
+        pose             = Pose()
+        pose.position    = Point(x=float(centre[0]), y=float(centre[1]),
+                                 z=float(centre[2]))
+        pose.orientation = Quaternion(x=0.0, y=0.0, z=0.0, w=1.0)
+
+        co.primitives      = [prim]
+        co.primitive_poses = [pose]
+        return co
+
+    def _make_cylinder(self, obj_id, p_a, p_b, radius):
+        """Cylinder from p_a to p_b (world frame). Height is padded by one
+        radius at each end so consecutive segments overlap at the joints
+        (poor man's capsule)."""
+        d      = p_b - p_a
+        length = float(np.linalg.norm(d))
+        if length < MIN_SEG_LEN:
+            return None
+        axis_z = d / length
+
+        co                 = CollisionObject()
+        co.header          = Header()
+        co.header.frame_id = "world"
+        co.header.stamp    = self.get_clock().now().to_msg()
+        co.id              = obj_id
+        co.operation       = CollisionObject.ADD
+
+        prim            = SolidPrimitive()
+        prim.type       = SolidPrimitive.CYLINDER
+        # SolidPrimitive cylinder: dimensions = [height, radius], axis = local Z
+        prim.dimensions = [length + 2.0 * radius, float(radius)]
+
+        centre           = (p_a + p_b) / 2.0
+        pose             = Pose()
+        pose.position    = Point(x=float(centre[0]), y=float(centre[1]),
+                                 z=float(centre[2]))
+        pose.orientation = self._quat_align_z(axis_z)
+
+        co.primitives      = [prim]
+        co.primitive_poses = [pose]
+        return co
+
+    @staticmethod
+    def _quat_align_z(d):
+        """Quaternion rotating the local +Z axis onto unit vector d."""
+        z   = np.array([0.0, 0.0, 1.0])
+        dot = float(np.dot(z, d))
+        if dot > 0.99999:
+            return Quaternion(x=0.0, y=0.0, z=0.0, w=1.0)
+        if dot < -0.99999:
+            # anti-parallel: 180° about X
+            return Quaternion(x=1.0, y=0.0, z=0.0, w=0.0)
+        axis = np.cross(z, d)
+        s    = float(np.sqrt((1.0 + dot) * 2.0))
+        return Quaternion(x=float(axis[0] / s),
+                          y=float(axis[1] / s),
+                          z=float(axis[2] / s),
+                          w=s / 2.0)
+
+    # ─────────────────────────────────────────────────────────────────────────
     #  HELPERS
     # ─────────────────────────────────────────────────────────────────────────
 
-    def _publish_remove_only(self):
-        remove_co           = CollisionObject()
-        remove_co.id        = COLLISION_ID
-        remove_co.operation = CollisionObject.REMOVE
+    def _publish_objects(self, cos):
+        """Atomic scene diff: ADD the current objects and REMOVE any object
+        we published before that is absent this cycle — one message, so no
+        ghost parts ever linger (same trick as the original hand box swap)."""
+        new_ids = {co.id for co in cos}
+        removes = []
+        for stale_id in self._active_ids - new_ids:
+            r           = CollisionObject()
+            r.id        = stale_id
+            r.operation = CollisionObject.REMOVE
+            removes.append(r)
+
         scene_msg                         = PlanningScene()
         scene_msg.is_diff                 = True
-        scene_msg.world.collision_objects = [remove_co]
+        scene_msg.world.collision_objects = list(cos) + removes
         self.scene_pub.publish(scene_msg)
+        self._active_ids = new_ids
+
+    def _publish_remove_only(self):
+        ids = self._active_ids if self._active_ids else {COLLISION_ID}
+        removes = []
+        for obj_id in ids:
+            r           = CollisionObject()
+            r.id        = obj_id
+            r.operation = CollisionObject.REMOVE
+            removes.append(r)
+        scene_msg                         = PlanningScene()
+        scene_msg.is_diff                 = True
+        scene_msg.world.collision_objects = removes
+        self.scene_pub.publish(scene_msg)
+        self._active_ids = set()
 
 
 def main(args=None):

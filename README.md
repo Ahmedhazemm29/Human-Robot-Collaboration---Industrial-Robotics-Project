@@ -475,11 +475,102 @@ ros2 launch robotiq_2f_urcap_adapter robotiq_2f85_urcap_adapter_launch.py \
 
 ## Mode Switching
 
+### Camera mode
+
 At the top of `hrc_perception_ws/src/human_robot_collab/human_robot_collab/hand_to_collision.py`:
 
 ```python
 WEBCAM_MODE = True   # Development — uses webcam + fixed depth
 WEBCAM_MODE = False  # Deployment  — uses Kinect depth stream + TF transform
+```
+
+### Tracking mode — hand vs. full body
+
+The collision publisher supports two tracking modes, selected with a ROS
+parameter at launch (no code edit needed):
+
+| Mode | Detector | Collision model |
+|---|---|---|
+| `hand` (default) | C++ MediaPipe node → `/hand_bbox` | Single padded box around the hand |
+| `body` | `body_tracker` (MediaPipe Pose, Python) → `/body_landmarks` | Cylinders for upper arms + forearms, spheres for hands and head |
+
+**Hand mode (original pipeline — unchanged):**
+
+```bash
+ros2 run human_robot_collab hand_to_collision
+```
+
+**Full-body mode:**
+
+```bash
+# Terminal A — pose detector (webcam)
+ros2 run human_robot_collab body_tracker
+# ...or from the Kinect RGB stream:
+ros2 run human_robot_collab body_tracker --ros-args -p image_topic:=/image_raw
+
+# Terminal B — collision publisher in body mode
+ros2 run human_robot_collab hand_to_collision --ros-args -p tracking_mode:=body
+```
+
+Body mode publishes up to 7 collision objects (`body_l_upper_arm`,
+`body_l_forearm`, `body_l_hand`, the right-side equivalents, and
+`body_head`). Parts are added/removed atomically in a single
+`/planning_scene` diff, and landmarks below the MediaPipe visibility
+threshold are skipped — so partially occluded limbs never produce ghost
+obstacles. Body mode works in both `WEBCAM_MODE` settings: webcam uses the
+same pixel→table mapping as the hand box; Kinect mode samples depth per
+landmark and TF-transforms each point into the world frame.
+
+`body_tracker` and `gesture_tracker` require the MediaPipe Python package
+(`pip install mediapipe`). Both the legacy `mp.solutions` API and the new
+Tasks API (mediapipe ≥ 0.10.3x, where `mp.solutions` was removed) are
+supported via `mp_compat.py` — with new MediaPipe versions the landmark
+model files (~13 MB total) are auto-downloaded to `~/.cache/hrc_models`
+on first run.
+
+---
+
+## Gesture Control — Pause / Resume
+
+The operator can pause and resume the waypoint task with bare-hand gestures:
+
+| Gesture | Effect |
+|---|---|
+| **Open palm** (4 fingers extended) | Pause the task |
+| **Fist** (4 fingers curled) | Resume the task |
+
+```bash
+# Gesture detector (webcam)
+ros2 run human_robot_collab gesture_tracker
+# ...or from any image topic (Kinect RGB, or body_tracker's republished frames):
+ros2 run human_robot_collab gesture_tracker --ros-args -p image_topic:=/image_raw
+```
+
+How it works:
+
+- `gesture_tracker` (MediaPipe Hands) classifies the gesture with pure
+  landmark geometry — a finger is "extended" when its tip is farther from
+  the wrist than its PIP joint. A gesture must be held for ~8 consecutive
+  frames (~0.3 s) before it takes effect, so a hand sweeping through the
+  frame never accidentally toggles the state.
+- The latched pause state is published on `/gesture_pause` (`std_msgs/Bool`)
+  with a 10 Hz heartbeat; the debounced raw gesture is published on
+  `/gesture_cmd` for debugging.
+- `GesturePauseGate` BT nodes in `bt_action.xml` return RUNNING while
+  paused, holding the tree **between** waypoints — the current motion
+  finishes, then the robot waits at the next gate until a fist is shown.
+  (Mid-motion safety stops remain the job of the hand/body collision
+  pipeline — the two features are independent and compose.)
+- If `gesture_tracker` is not running, the gates never receive a message
+  and default to not-paused: the pipeline behaves exactly as before.
+
+**Webcam sharing note:** two nodes cannot open the same webcam. To run body
+tracking and gesture control from one camera, let `body_tracker` own it and
+republish frames:
+
+```bash
+ros2 run human_robot_collab body_tracker --ros-args -p publish_frames:=true
+ros2 run human_robot_collab gesture_tracker --ros-args -p image_topic:=/webcam/image_raw
 ```
 
 ---

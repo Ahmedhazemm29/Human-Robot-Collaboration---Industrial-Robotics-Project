@@ -4,11 +4,19 @@
     <Sequence>
       <WaitForServer server_name="reach_location"/>
 
+      <!-- Gesture gates: each gate holds the tree while the operator has
+           paused the task (OPEN PALM = pause, FIST = resume — published on
+           /gesture_pause by gesture_tracker). A pause takes effect at the
+           next gate, i.e. after the current motion finishes. -->
+      <GesturePauseGate/>
+
       <!-- Waypoint 1: home / ready pose. -->
       <CallAction server_name="reach_location"
                   x="0.265" y="-0.065" z="0.980"
                   qx="0.500" qy="-0.500" qz="0.500" qw="0.500"
                   timeout="15"/>
+
+      <GesturePauseGate/>
 
       <!-- Move to pick AND open gripper simultaneously.
            cartesian="true" → straight-line (Pilz LIN) approach to the pick. -->
@@ -25,6 +33,8 @@
       <!-- Close gripper on the block. -->
       <Gripper server_name="/robotiq_2f85_urcap_adapter/robotiq_2f85_urcap_adapter/gripper_command"
                position="0.0" max_speed="0.1" max_effort="50.0"/>
+
+      <GesturePauseGate/>
 
       <!-- Move straight to drop position. -->
       <CallAction server_name="reach_location"
@@ -55,6 +65,7 @@
     <Action ID="WaitForServer" editable="true">
       <input_port name="server_name"/>
     </Action>
+    <Action ID="GesturePauseGate" editable="true"/>
     <Action ID="Gripper" editable="true">
       <input_port name="server_name"/>
       <input_port name="position"/>

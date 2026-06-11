@@ -5,6 +5,8 @@
 #include <bt_action_server/action/reach_location.hpp>
 #include <rclcpp_action/rclcpp_action.hpp>
 #include <robotiq_2f_urcap_adapter/action/gripper_command.hpp>
+#include <std_msgs/msg/bool.hpp>
+#include <atomic>
 
 using namespace std::chrono_literals;
 using Action = bt_action_server::action::ReachLocation;
@@ -292,6 +294,54 @@ private:
 };
 
 
+// Gesture-controlled gate: holds the tree while the operator has paused the
+// task with an OPEN PALM gesture (gesture_tracker publishes /gesture_pause).
+// Returns RUNNING while paused, SUCCESS once clear — place one before each
+// motion step so a pause takes effect at the next waypoint boundary. If the
+// gesture node is not running, no message ever arrives and the gate defaults
+// to not-paused, so the tree behaves exactly as it did without this feature.
+class GesturePauseGate : public BT::StatefulActionNode {
+public:
+    GesturePauseGate(const std::string & action_name, const BT::NodeConfig & conf)
+    : BT::StatefulActionNode(action_name, conf)
+    {
+        static std::atomic<int> instance_count{0};
+        node_ = rclcpp::Node::make_shared(
+            "gesture_gate_node_" + std::to_string(instance_count++));
+        sub_ = node_->create_subscription<std_msgs::msg::Bool>(
+            "/gesture_pause", 10,
+            [this](std_msgs::msg::Bool::SharedPtr msg) { paused_ = msg->data; });
+    }
+
+    BT::NodeStatus onStart() {
+        return check_gate();
+    }
+
+    BT::NodeStatus onRunning() {
+        return check_gate();
+    }
+
+    void onHalted() {}
+
+    static BT::PortsList providedPorts() { return {}; }
+
+private:
+    BT::NodeStatus check_gate() {
+        rclcpp::spin_some(node_);
+        if (paused_) {
+            std::cout << "[GesturePauseGate]: PAUSED — show a FIST to resume"
+                      << std::endl;
+            return BT::NodeStatus::RUNNING;
+        }
+        return BT::NodeStatus::SUCCESS;
+    }
+
+    rclcpp::Node::SharedPtr node_;
+    rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr sub_;
+    bool paused_{false};
+};
+
+
 class BTExecutor : public rclcpp::Node {
 public:
     BTExecutor()
@@ -307,6 +357,7 @@ private:
         factory_.registerNodeType<WaitForServer>("WaitForServer");
         factory_.registerNodeType<CallAction>("CallAction");
         factory_.registerNodeType<Gripper>("Gripper");
+        factory_.registerNodeType<GesturePauseGate>("GesturePauseGate");
 
         this->declare_parameter<std::string>("tree_xml_file", "");
         std::string tree_file;

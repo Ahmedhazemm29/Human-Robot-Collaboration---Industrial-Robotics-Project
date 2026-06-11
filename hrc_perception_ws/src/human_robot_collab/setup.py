@@ -25,6 +25,8 @@ setup(
     entry_points={
         'console_scripts': [
              'hand_to_collision = human_robot_collab.hand_to_collision:main',
+             'body_tracker = human_robot_collab.body_tracker:main',
+             'gesture_tracker = human_robot_collab.gesture_tracker:main',
              'block_spawner = human_robot_collab.block_spawner:main',
              'validate_corners = human_robot_collab.validate_corners:main',
              'waypoint_manager = human_robot_collab.waypoint_manager:main',
