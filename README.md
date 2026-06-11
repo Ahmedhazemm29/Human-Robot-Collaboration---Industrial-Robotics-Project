@@ -229,9 +229,9 @@ The simulation runs using the **fake UR5e hardware interface** (no Gazebo) with 
 │   └── src/
 │       ├── human_robot_collab/        # hand_to_collision.py — publishes hand box to /planning_scene
 │       │                              # validate_corners.py, waypoint_manager.py
-│       ├── kinect_ros2/               # Kinect ROS2 driver node
-│       ├── actions_py/                # Python action server/client examples
-│       └── cmake_pkg/                 # CMake package template
+│       ├── kinect_ros2/               
+│       ├── actions_py/                
+│       └── cmake_pkg/                 
 │
 ├── bt_moveit_ws/
 │   └── src/
@@ -258,7 +258,7 @@ The simulation runs using the **fake UR5e hardware interface** (no Gazebo) with 
 │       │   └── ur_moveit_config/
 │       │       └── rviz/view_robot.rviz         # RViz config (Loop Animation off, 0.20s ghost step)
 │       ├── Universal_Robots_ROS2_Description/   # Modified UR description (lab URDF, ceiling mount, Kinect)
-│       ├── ur5e_grip_run/                       # Python joint commander
+│       ├── ur5e_grip_run/                      
 │       └── ur5e_grip_run_cpp/                   # C++ joint commander with IK
 │
 ├── launch_sim.sh                      # One-command launcher: opens all 5 terminals in boot order (simulation)
